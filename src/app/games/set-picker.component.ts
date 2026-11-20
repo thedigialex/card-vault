@@ -18,8 +18,14 @@ import {
 import { addIcons } from 'ionicons';
 import { checkmarkCircle, ellipseOutline, lockClosed } from 'ionicons/icons';
 
+import { CatalogService } from '../data/catalog.service';
 import { GameSet } from '../data/models';
-import { gameById } from './games';
+
+export interface SetPick {
+  sets: string[];
+  /** Every set offered; a game that comes as one download then stores no choice, so new sets arrive too. */
+  all: boolean;
+}
 
 /** Modal props arrive as plain fields (Ionic assigns them), so no signal inputs here. */
 @Component({
@@ -41,7 +47,9 @@ import { gameById } from './games';
       </ion-toolbar>
       <ion-toolbar>
         <ion-segment [value]="scope()" (ionChange)="scope.set($any($event.detail.value))">
-          <ion-segment-button value="main">Main sets</ion-segment-button>
+          @if (hasSideSets()) {
+            <ion-segment-button value="main">Main sets</ion-segment-button>
+          }
           <ion-segment-button value="all">All</ion-segment-button>
           <ion-segment-button value="picked">Picked ({{ picked().size }})</ion-segment-button>
         </ion-segment>
@@ -51,10 +59,16 @@ import { gameById } from './games';
       @if (failed()) {
         <p class="empty-state">Couldn't load the set list. Check your connection and try again.</p>
       } @else if (!sets().length) {
-        <div class="empty-state"><ion-spinner /></div>
+        <div class="empty-state"><ion-spinner /><p>Loading sets…</p></div>
       } @else {
+        <div class="bulk">
+          <button (click)="pickShown(true)">Select all shown</button>
+          <button (click)="pickShown(false)">Clear</button>
+        </div>
         @for (group of groups(); track group.year) {
-          <h3 class="year">{{ group.year }}</h3>
+          @if (group.year) {
+            <h3 class="year">{{ group.year }}</h3>
+          }
           @for (set of group.sets; track set.code) {
             @let locked = lockedSet.has(set.code);
             <button class="set-row" [class.on]="picked().has(set.code)" [disabled]="locked" (click)="toggle(set.code)">
@@ -65,7 +79,7 @@ import { gameById } from './games';
               }
               <span class="text">
                 <strong>{{ set.name }}</strong>
-                <small>{{ set.code.toUpperCase() }} · {{ set.cardCount | number }} cards · {{ kindLabel(set.kind) }}</small>
+                <small>{{ set.code }} · {{ set.cardCount | number }} cards{{ set.kind ? ' · ' + kindLabel(set.kind) : '' }}</small>
               </span>
               <ion-icon [name]="locked ? 'lock-closed' : picked().has(set.code) ? 'checkmark-circle' : 'ellipse-outline'" />
             </button>
@@ -152,6 +166,21 @@ import { gameById } from './games';
         color: var(--ion-color-medium);
       }
     }
+    .bulk {
+      display: flex;
+      justify-content: flex-end;
+      gap: 16px;
+      padding: 8px 16px 4px;
+
+      button {
+        border: none;
+        background: none;
+        color: var(--ion-color-primary);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+      }
+    }
     .hint {
       display: flex;
       align-items: center;
@@ -169,11 +198,14 @@ import { gameById } from './games';
 })
 export class SetPickerComponent implements OnInit {
   protected readonly modals = inject(ModalController);
+  private readonly catalog = inject(CatalogService);
 
   gameId = '';
   selected: string[] = [];
   /** Sets the user owns cards from; dropping them would hide those cards. */
   locked: string[] = [];
+  /** The game is installed whole, so every set starts picked. */
+  allPicked = false;
 
   protected lockedSet = new Set<string>();
   protected readonly sets = signal<GameSet[]>([]);
@@ -193,12 +225,14 @@ export class SetPickerComponent implements OnInit {
     );
     const groups: { year: string; sets: GameSet[] }[] = [];
     for (const set of shown) {
-      const year = set.releasedAt.slice(0, 4) || 'Undated';
+      const year = set.releasedAt.slice(0, 4);
       if (groups.at(-1)?.year !== year) groups.push({ year, sets: [] });
       groups.at(-1)!.sets.push(set);
     }
     return groups;
   });
+
+  protected readonly hasSideSets = computed(() => this.sets().some(set => !set.main));
 
   protected readonly cardTotal = computed(() => {
     const picked = this.picked();
@@ -211,10 +245,14 @@ export class SetPickerComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     this.lockedSet = new Set(this.locked);
-    this.picked.set(new Set([...this.selected, ...this.locked]));
+    this.picked.set(new Set([...this.selected.map(code => code.toUpperCase()), ...this.locked]));
     try {
-      const sets = (await gameById(this.gameId)?.listSets?.()) ?? [];
-      this.sets.set([...sets].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt)));
+      const sets = await this.catalog.setsFor(this.gameId);
+      // Dated sets read newest first; undated ones keep the game's own order.
+      this.sets.set(sets.some(set => set.releasedAt) ? [...sets].sort((a, b) => b.releasedAt.localeCompare(a.releasedAt)) : sets);
+      if (!this.hasSideSets()) this.scope.set('all');
+      // A game installed whole has every set picked.
+      if (this.allPicked) this.picked.set(new Set(sets.map(set => set.code)));
     } catch {
       this.failed.set(true);
     }
@@ -232,7 +270,21 @@ export class SetPickerComponent implements OnInit {
     });
   }
 
+  protected pickShown(on: boolean): void {
+    const shown = this.groups().flatMap(group => group.sets.map(set => set.code));
+    this.picked.update(picked => {
+      const next = new Set(picked);
+      for (const code of shown) {
+        if (on) next.add(code);
+        else if (!this.lockedSet.has(code)) next.delete(code);
+      }
+      return next;
+    });
+  }
+
   protected done(): void {
-    void this.modals.dismiss([...this.picked()], 'save');
+    const picked = this.picked();
+    const result: SetPick = { sets: [...picked], all: picked.size === this.sets().length };
+    void this.modals.dismiss(result, 'save');
   }
 }

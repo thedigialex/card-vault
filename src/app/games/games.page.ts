@@ -21,7 +21,7 @@ import { CollectionService } from '../data/collection.service';
 import { NotifyService } from '../shared/notify.service';
 import { PriceService } from '../prices/price.service';
 import { GAMES, gameById } from './games';
-import { SetPickerComponent } from './set-picker.component';
+import { SetPick, SetPickerComponent } from './set-picker.component';
 
 @Component({
   selector: 'app-games',
@@ -75,7 +75,7 @@ import { SetPickerComponent } from './set-picker.component';
               }
             </ion-label>
             <div class="actions" slot="end">
-              @if (row.game.listSets && row.installed?.sets?.length) {
+              @if (row.installed || !row.game.listSets) {
                 <ion-button size="small" fill="clear" [disabled]="busy() !== null" (click)="pickSets(row.game.id)">Sets</ion-button>
               }
               <ion-button fill="outline" [disabled]="busy() !== null" (click)="update(row.game.id)">
@@ -139,18 +139,24 @@ export class GamesPage {
       this.collection
         .entries()
         .filter(entry => entry.card.game === gameId)
-        .map(entry => entry.card.setCode.toLowerCase()),
+        .map(entry => entry.card.setCode),
     );
+    const wholeGame = !gameById(gameId)?.listSets;
     const modal = await this.modals.create({
       component: SetPickerComponent,
-      componentProps: { gameId, selected: installed?.sets ?? [], locked: [...locked] },
+      componentProps: {
+        gameId,
+        selected: installed?.sets ?? [],
+        locked: [...locked],
+        allPicked: wholeGame && !!installed && !installed.sets,
+      },
     });
     await modal.present();
-    const { data, role } = await modal.onWillDismiss<string[]>();
-    if (role === 'save' && data) await this.update(gameId, data);
+    const { data, role } = await modal.onWillDismiss<SetPick>();
+    if (role === 'save' && data) await this.update(gameId, wholeGame && data.all ? 'all' : data.sets);
   }
 
-  protected async update(gameId: string, sets?: string[]): Promise<void> {
+  protected async update(gameId: string, sets?: string[] | 'all'): Promise<void> {
     const game = gameById(gameId);
     const installed = this.catalog.installed().find(row => row.id === gameId);
     if (game?.listSets && !sets && !installed?.sets?.length) return this.pickSets(gameId);

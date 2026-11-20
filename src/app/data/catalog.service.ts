@@ -3,13 +3,16 @@ import Dexie from 'dexie';
 
 import { gameById } from '../games/games';
 import { VaultDb } from './db';
-import { CatalogCard, InstalledGame, ownedSortKey } from './models';
+import { CatalogCard, CatalogDownload, GameDefinition, GameSet, InstalledGame, ownedSortKey } from './models';
+import { groupBySet } from './sets';
 
 const SEARCH_LIMIT = 60;
+/** Picking sets downloads the whole list once; installing right after reuses it. */
+const PREFETCH_TTL_MS = 10 * 60 * 1000;
 
 export interface InstallOptions {
-  /** Replaces the remembered set choice for games downloaded set by set. */
-  sets?: string[];
+  /** Replaces the remembered set choice; 'all' clears it so new sets arrive by themselves. */
+  sets?: string[] | 'all';
   withPrices?: boolean;
 }
 
@@ -28,6 +31,7 @@ export class CatalogService {
   private readonly db = inject(VaultDb);
   private readonly cache = new Map<string, CatalogCard[]>();
   private readonly index = new Map<string, { card: CatalogCard; code: string; name: string }[]>();
+  private readonly prefetched = new Map<string, { at: number; download: CatalogDownload }>();
 
   readonly installed = signal<InstalledGame[]>([]);
   /** False until the first read of the database, so screens don't flash "no games" on startup. */
@@ -58,12 +62,15 @@ export class CatalogService {
     const game = gameById(gameId);
     if (!game) throw new Error(`Unknown game ${gameId}`);
     const previous = await this.db.games.get(gameId);
-    const sets = options.sets ?? previous?.sets;
+    const sets = options.sets === 'all' ? undefined : (options.sets ?? previous?.sets);
     this.installing.set(gameId);
     this.progress.set(undefined);
     try {
-      const download = await game.fetchCatalog({ sets, onProgress: fraction => this.progress.set(fraction) });
-      const { cards, prices } = Array.isArray(download) ? { cards: download, prices: undefined } : download;
+      const download = game.listSets ? await this.download(game, sets) : (this.takePrefetched(gameId) ?? (await this.download(game)));
+      const { prices } = download;
+      // Games that come as one download are trimmed to the picked sets here.
+      const wanted = new Set(sets);
+      const cards = sets && !game.listSets ? download.cards.filter(card => wanted.has(card.setCode)) : download.cards;
       const keepPrices = options.withPrices !== false && prices;
       const byId = new Map(cards.map(card => [card.id, card]));
       const now = Date.now();
@@ -98,6 +105,36 @@ export class CatalogService {
       this.installing.set(null);
       this.progress.set(undefined);
     }
+  }
+
+  /** The sets a game offers: its own list, or the sets found in its full download. */
+  async setsFor(gameId: string): Promise<GameSet[]> {
+    const game = gameById(gameId);
+    if (!game) throw new Error(`Unknown game ${gameId}`);
+    if (game.listSets) return game.listSets();
+    const download = await this.download(game);
+    this.prefetched.set(gameId, { at: Date.now(), download });
+    const sorted = [...download.cards].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    return groupBySet(sorted, card => card).map(group => ({
+      code: group.setCode,
+      name: group.setName.replace(`${group.setCode} · `, ''),
+      releasedAt: '',
+      cardCount: group.items.length,
+      kind: '',
+      main: true,
+      icon: group.items[0].setIcon,
+    }));
+  }
+
+  private async download(game: GameDefinition, sets?: string[]): Promise<CatalogDownload> {
+    const download = await game.fetchCatalog({ sets, onProgress: fraction => this.progress.set(fraction) });
+    return Array.isArray(download) ? { cards: download } : download;
+  }
+
+  private takePrefetched(gameId: string): CatalogDownload | undefined {
+    const hit = this.prefetched.get(gameId);
+    this.prefetched.delete(gameId);
+    return hit && Date.now() - hit.at < PREFETCH_TTL_MS ? hit.download : undefined;
   }
 
   async cardsFor(gameId: string): Promise<CatalogCard[]> {

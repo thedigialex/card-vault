@@ -182,7 +182,7 @@ export function magicPrices(cards: ScryfallCard[], updatedAt: number): PriceRow[
 
 export function toGameSet(set: ScryfallSet): GameSet {
   return {
-    code: set.code,
+    code: set.code.toUpperCase(),
     name: set.name,
     releasedAt: set.released_at ?? '',
     cardCount: set.card_count,
@@ -245,7 +245,7 @@ export const magic: GameDefinition = {
     return (await paperSets()).map(toGameSet);
   },
   async fetchCatalog(options: FetchOptions = {}): Promise<CatalogDownload> {
-    const wanted = new Set(options.sets ?? []);
+    const wanted = new Set((options.sets ?? []).map(code => code.toLowerCase()));
     const sets = new Map((await paperSets()).map(set => [set.code, set]));
     const codes = [...wanted].filter(code => sets.has(code));
     const raw: ScryfallCard[] = [];
