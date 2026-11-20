@@ -1,0 +1,7 @@
+{
+  "name": "card-vault",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "angular-standalone"
+}
