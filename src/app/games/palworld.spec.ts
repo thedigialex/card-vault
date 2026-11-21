@@ -70,4 +70,9 @@ describe('palworldScanCandidates', () => {
   it('reads a number off noisy text', () => {
     expect(palworldScanCandidates('Pal  BPO1-OO1  RR')).toEqual(['BP01-001']);
   });
+
+  it('drops the English language letter printed in front of the number', () => {
+    expect(palworldScanCandidates('<RR> EBP01-001')).toEqual(['BP01-001']);
+    expect(palworldScanCandidates('<C> ETDO1-O12 ©PALWORLD')).toEqual(['TD01-012']);
+  });
 });

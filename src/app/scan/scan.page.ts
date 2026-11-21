@@ -30,6 +30,7 @@ import { CatalogCard, REGULAR_PRINTING, printingLabel } from '../data/models';
 import { gameById } from '../games/games';
 import { NotifyService } from '../shared/notify.service';
 import { RepeatGuard, acceptable, afterAdd, afterFrame, emptyGuard } from './auto-scan';
+import { NameIndex } from './name-match';
 import { ScanSoundService } from './scan-sound';
 
 const FRAME_INTERVAL_MS = 600;
@@ -99,15 +100,30 @@ interface AddedCard {
               <p>{{ status() }}</p>
             </div>
           }
-          <div class="guide" [class.locked]="found() || cooldown() > 0"></div>
+          <div
+            class="guide"
+            [class.locked]="found() || cooldown() > 0"
+            [class.reading]="phase() === 'reading'"
+            [class.scanning]="scanning()"
+          >
+            <span class="laser"></span>
+          </div>
+          @if (scanning()) {
+            <div class="live" [class.blink]="frames() % 2 === 1"><span></span> Scanning</div>
+          }
           @if (ready()) {
-            <p class="status">
-              @if (cooldown() > 0) {
-                Next card in {{ cooldown() }}…
-              } @else {
-                {{ status() }}
+            <div class="status-panel">
+              <p class="status">
+                @if (cooldown() > 0) {
+                  Next card in {{ cooldown() }}…
+                } @else {
+                  {{ status() }}
+                }
+              </p>
+              @if (hint() && !found() && cooldown() === 0) {
+                <p class="hint">{{ hint() }}</p>
               }
-            </p>
+            </div>
           }
           @if (added().length) {
             <div class="tally">{{ added().length }} added</div>
@@ -123,6 +139,14 @@ interface AddedCard {
               <p class="set">{{ card.setName }}</p>
               @if (collection.countsByCard().get(card.id); as owned) {
                 <p>You own {{ owned }}</p>
+              }
+              @if (alternatives().length > 1) {
+                <p class="alt-label">{{ alternatives().length }} cards share this name. Which one?</p>
+                <div class="printings">
+                  @for (alt of alternatives().slice(0, 10); track alt.id) {
+                    <ion-chip [outline]="alt.id !== card.id" (click)="choose(alt)">{{ alt.number }}</ion-chip>
+                  }
+                </div>
               }
               @if (card.printings.length) {
                 <div class="printings">
@@ -216,18 +240,92 @@ interface AddedCard {
       box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
       transition: border-color 0.2s;
     }
+    .guide.reading {
+      border-color: #f7b733;
+    }
     .guide.locked {
       border-color: var(--ion-color-success);
     }
-    .status {
+    .laser {
       position: absolute;
-      left: 0;
-      right: 0;
+      left: 6px;
+      right: 6px;
+      top: 0;
+      height: 2px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, transparent, #7c9bff, transparent);
+      box-shadow: 0 0 12px 2px rgb(91 124 250 / 0.7);
+      opacity: 0;
+    }
+    .guide.scanning .laser {
+      opacity: 1;
+      animation: sweep 1.8s ease-in-out infinite alternate;
+    }
+    .guide.reading .laser {
+      background: linear-gradient(90deg, transparent, #f7b733, transparent);
+      box-shadow: 0 0 12px 2px rgb(247 183 51 / 0.7);
+    }
+    @keyframes sweep {
+      from {
+        top: 4%;
+      }
+      to {
+        top: 95%;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .guide.scanning .laser {
+        animation: none;
+        top: 50%;
+      }
+    }
+    .live {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: rgb(0 0 0 / 0.55);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+
+      span {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4ade80;
+        transition: opacity 0.15s;
+      }
+      &.blink span {
+        opacity: 0.3;
+      }
+    }
+    .status-panel {
+      position: absolute;
+      left: 12px;
+      right: 12px;
       bottom: 12px;
-      margin: 0;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: rgb(0 0 0 / 0.6);
       text-align: center;
       color: #fff;
-      text-shadow: 0 1px 3px #000;
+
+      p {
+        margin: 0;
+      }
+      .status {
+        font-weight: 600;
+      }
+      .hint {
+        margin-top: 4px;
+        font-size: 12px;
+        color: #cbd5e0;
+      }
     }
     .tally {
       position: absolute;
@@ -261,6 +359,11 @@ interface AddedCard {
     .details {
       flex: 1;
       min-width: 0;
+    }
+    .result p.alt-label {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #f7b733;
     }
     .printings {
       display: flex;
@@ -323,22 +426,32 @@ export class ScanPage {
   protected readonly regular = REGULAR_PRINTING;
   protected readonly delays = [2, 3, 5, 8];
 
-  protected readonly gameId = computed(() => this.catalog.installedGames()[0]?.id ?? '');
+  /** Every downloaded game is searched, so the scanner never needs to be told which game a card is from. */
+  protected readonly gameIds = computed(() => this.catalog.installedGames().map(game => game.id));
   protected readonly mode = signal<'manual' | 'auto'>('manual');
   protected readonly delay = signal(3);
   protected readonly muted = signal(false);
   protected readonly ready = signal(false);
   protected readonly failed = signal(false);
   protected readonly found = signal<CatalogCard | null>(null);
+  /** Cards sharing the found card's name, when it was recognised by name rather than number. */
+  protected readonly alternatives = signal<CatalogCard[]>([]);
   protected readonly printing = signal(REGULAR_PRINTING);
   protected readonly added = signal<AddedCard[]>([]);
   protected readonly cooldown = signal(0);
   protected readonly status = signal('Starting camera…');
+  protected readonly hint = signal('');
+  protected readonly phase = signal<'looking' | 'reading'>('looking');
+  /** Bumped on every frame read, so the "Scanning" dot visibly ticks. */
+  protected readonly frames = signal(0);
+  protected readonly scanning = computed(() => this.ready() && this.native && !this.found() && this.cooldown() === 0);
   protected readonly targetBox = signal(0);
   protected readonly handSorted = computed(() => this.boxes.boxes().filter(box => !box.autoSort));
   private readonly entered = signal(false);
 
   private byNumber = new Map<string, CatalogCard>();
+  private names = new NameIndex([]);
+  private pendingAlternatives: CatalogCard[] = [];
   private stream: MediaStream | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
@@ -348,6 +461,7 @@ export class ScanPage {
   private ignored: string | null = null;
   private guard: RepeatGuard = emptyGuard();
   private resumeAt = 0;
+  private misses = 0;
   private readonly canvas = document.createElement('canvas');
 
   constructor() {
@@ -355,7 +469,7 @@ export class ScanPage {
     // The installed games arrive from the database a moment after the page opens.
     effect(() => {
       if (!this.entered() || this.starting || !this.catalog.loaded()) return;
-      if (!this.gameId()) {
+      if (!this.gameIds().length) {
         this.failed.set(true);
         this.status.set('Download a game on the Games tab first.');
         return;
@@ -364,10 +478,12 @@ export class ScanPage {
       void this.start();
     });
     effect(() => {
-      const gameId = this.gameId();
-      if (!gameId) return;
-      void this.catalog.cardsFor(gameId).then(cards => {
-        if (gameId === this.gameId()) this.byNumber = new Map(cards.map(card => [card.number, card]));
+      const ids = this.gameIds();
+      void Promise.all(ids.map(id => this.catalog.cardsFor(id))).then(lists => {
+        if (ids !== this.gameIds()) return;
+        const cards = lists.flat();
+        this.byNumber = new Map(cards.map(card => [card.number, card]));
+        this.names = new NameIndex(cards);
       });
     });
   }
@@ -395,7 +511,7 @@ export class ScanPage {
       this.status.set('Card reading works in the Android app. Type a number below.');
       return;
     }
-    this.status.set('Hold a card inside the frame');
+    this.lookingStatus();
     this.timer = setInterval(() => void this.tick(), FRAME_INTERVAL_MS);
   }
 
@@ -437,7 +553,11 @@ export class ScanPage {
       const data = this.canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
       const { uri } = await Filesystem.writeFile({ path: 'scan-frame.jpg', data, directory: Directory.Cache });
       const { text } = await TextRecognition.processImage({ path: uri });
-      this.consider(this.match(text));
+      this.frames.update(n => n + 1);
+      const read = this.match(text);
+      this.pendingAlternatives = read.alternatives;
+      this.consider(read.card);
+      if (!read.card) this.explainMiss(text, read.candidates);
     } catch {
       this.status.set('Could not read that frame, trying again…');
     } finally {
@@ -445,13 +565,44 @@ export class ScanPage {
     }
   }
 
-  private match(text: string): CatalogCard | null {
-    const game = gameById(this.gameId());
-    for (const number of game?.scanCandidates(text) ?? []) {
+  /** The printed number wins; the name is the fallback for numbers too small for the camera. */
+  private match(text: string): { card: CatalogCard | null; candidates: string[]; alternatives: CatalogCard[] } {
+    const candidates = this.gameIds().flatMap(id => gameById(id)?.scanCandidates(text) ?? []);
+    for (const number of candidates) {
       const card = this.byNumber.get(number);
-      if (card) return card;
+      if (card) return { card, candidates, alternatives: [] };
     }
-    return null;
+    const named = this.names.find(text);
+    // Auto mode can't ask which printing, so it only trusts a name that belongs to one card.
+    if (named.length && (this.mode() === 'manual' || named.length === 1)) {
+      return { card: named[0], candidates, alternatives: named };
+    }
+    return { card: null, candidates, alternatives: [] };
+  }
+
+  protected choose(card: CatalogCard): void {
+    this.printing.set(REGULAR_PRINTING);
+    this.found.set(card);
+  }
+
+  /** Says what the camera did see, so a miss doesn't look like nothing is happening. */
+  private explainMiss(text: string, candidates: string[]): void {
+    if (this.found() || this.resumeAt > Date.now()) return;
+    this.misses++;
+    if (candidates.length) {
+      this.status.set(`Read ${candidates[0]}, but it isn't in your downloaded cards`);
+      this.hint.set('Check its set is picked on the Games tab, or hold steady for another read.');
+    } else if (text.trim()) {
+      this.status.set('Seeing the card, looking for its number…');
+      this.hint.set(this.misses > 8 ? 'Hold the card flat and steady so its name or number is sharp.' : '');
+    } else {
+      this.lookingStatus();
+      this.hint.set(this.misses > 8 ? 'Fill the frame with the card, in good light.' : '');
+    }
+  }
+
+  private lookingStatus(): void {
+    this.status.set(this.mode() === 'auto' ? 'Auto scanning — show a card' : 'Hold a card inside the frame');
   }
 
   /** Needs the same card in two frames in a row, so a half-read number doesn't pop up the wrong card. */
@@ -460,21 +611,27 @@ export class ScanPage {
     if (!card || card.id !== this.ignored) this.ignored = null;
     if (!card || card.id === this.ignored || (this.mode() === 'auto' && !acceptable(this.guard, card.id))) {
       this.lastSeen = null;
-      this.status.set(this.mode() === 'auto' ? 'Auto scanning — show a card' : 'Hold a card inside the frame');
+      this.phase.set('looking');
+      if (card) this.lookingStatus();
       return;
     }
+    this.misses = 0;
+    this.hint.set('');
     if (this.lastSeen !== card.id) {
       this.lastSeen = card.id;
-      this.status.set(`Reading ${card.number}…`);
+      this.phase.set('reading');
+      this.status.set(`Reading ${this.pendingAlternatives.length ? card.name : card.number}… hold still`);
       return;
     }
     this.lastSeen = null;
+    this.phase.set('looking');
     if (this.mode() === 'auto') void this.autoAdd(card);
     else this.show(card);
   }
 
   private show(card: CatalogCard): void {
     this.printing.set(REGULAR_PRINTING);
+    this.alternatives.set(this.pendingAlternatives);
     this.found.set(card);
     this.status.set('Found it');
     this.beep('found');
@@ -502,16 +659,21 @@ export class ScanPage {
   }
 
   protected manual(value: string): void {
-    const number = (value ?? '').trim().toUpperCase();
-    const card = this.byNumber.get(number) ?? this.match(number);
+    const typed = (value ?? '').trim();
+    const read = this.match(typed.toUpperCase());
+    const card = this.byNumber.get(typed.toUpperCase()) ?? read.card ?? this.names.find(typed)[0];
+    this.pendingAlternatives = read.alternatives;
     if (card) this.show(card);
-    else this.status.set(`No card numbered ${number}`);
+    else this.status.set(`No card matches ${typed}`);
   }
 
   protected skip(): void {
     this.ignored = this.found()?.id ?? null;
     this.found.set(null);
-    this.status.set('Hold a card inside the frame');
+    this.alternatives.set([]);
+    this.misses = 0;
+    this.hint.set('');
+    this.lookingStatus();
   }
 
   protected async add(card: CatalogCard): Promise<void> {

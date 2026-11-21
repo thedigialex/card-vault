@@ -90,9 +90,20 @@ export function buildPalworldCatalog(cards: PalCard[], sets: PalSet[]): CatalogC
     });
 }
 
-/** Palworld prints a two-letter family (BP, TD, PR), so any two letters are fair game. */
+/**
+ * Palworld prints a two-letter family (BP, TD, PR), so any two letters are fair game. English cards
+ * add a language letter in front ("EBP01-001"), which the catalog's numbers don't have.
+ */
 export function palworldScanCandidates(text: string): string[] {
-  return candidatesFrom(text, { familyLength: [2] });
+  const found = new Set<string>();
+  for (const number of candidatesFrom(text, { familyLength: [3, 2] })) {
+    const match = /^([A-Z]+)(\d*-\d+)$/.exec(number);
+    if (!match) continue;
+    const [, family, rest] = match;
+    if (family.length === 3 && family.startsWith('E')) found.add(`${family.slice(1)}${rest}`);
+    else if (family.length === 2) found.add(number);
+  }
+  return [...found];
 }
 
 export const palworld: GameDefinition = {
