@@ -15,7 +15,7 @@ import {
 import { addIcons } from 'ionicons';
 import { chevronBack, chevronForward, closeOutline } from 'ionicons/icons';
 
-import { CatalogCard, isShiny } from '../data/models';
+import { CatalogCard, rarityTier } from '../data/models';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
 
@@ -77,7 +77,7 @@ const clamp = (value: number) => Math.max(-1, Math.min(1, value));
                 <div
                   class="card"
                   [class.tracking]="tracking()"
-                  [class.shiny]="shiny()"
+                  [attr.data-tier]="tier()"
                   [style.transform]="transform()"
                   [style.--gx.%]="light().x"
                   [style.--gy.%]="light().y"
@@ -86,11 +86,18 @@ const clamp = (value: number) => Math.max(-1, Math.min(1, value));
                   [style.--sy.px]="light().shadowY"
                 >
                   <img [cardSrc]="bigImage()" [alt]="shown.name" draggable="false" />
-                  <span class="glare"></span>
-                  @if (shiny()) {
+                  @if (tier() !== 'common') {
                     <span class="holo"></span>
+                    <span class="shimmer"></span>
                   }
+                  @if (tier() === 'ultra') {
+                    <span class="glitter"></span>
+                  }
+                  <span class="glare"></span>
                 </div>
+                @if (tier() !== 'common') {
+                  <span class="rarity" [attr.data-tier]="tier()">★ {{ shown.rarity }}</span>
+                }
               </div>
             }
             @if (deck().length > 1) {
@@ -173,7 +180,11 @@ const clamp = (value: number) => Math.max(-1, Math.min(1, value));
       perspective: 1100px;
     }
     .deal {
-      --w: min(92cqw, 86cqh * 63 / 88);
+      --w: min(92cqw, 80cqh * 63 / 88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
       animation: deal-up 420ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
     }
     .deal[data-from='right'] {
@@ -229,7 +240,9 @@ const clamp = (value: number) => Math.max(-1, Math.min(1, value));
         box-shadow 70ms linear;
     }
     .glare,
-    .holo {
+    .holo,
+    .glitter,
+    .shimmer {
       position: absolute;
       inset: 0;
       pointer-events: none;
@@ -255,12 +268,103 @@ const clamp = (value: number) => Math.max(-1, Math.min(1, value));
       mix-blend-mode: color-dodge;
       opacity: calc(var(--glow, 0) * 0.75);
     }
+    /* Rares get a gold foil instead of the rainbow. */
+    .card[data-tier='rare'] .holo {
+      background-image: linear-gradient(
+        115deg,
+        transparent 25%,
+        rgb(255 190 60 / 0.55) 40%,
+        rgb(255 240 190 / 0.7) 50%,
+        rgb(255 160 30 / 0.55) 60%,
+        transparent 75%
+      );
+      mix-blend-mode: soft-light;
+      opacity: var(--glow, 0);
+    }
+    /* Ultras sparkle where the light falls: three dot grids of prime sizes, so no pattern shows. */
+    .glitter {
+      background-image:
+        radial-gradient(circle, #fff 0 1px, transparent 1.6px),
+        radial-gradient(circle, #fff 0 1.2px, transparent 2px),
+        radial-gradient(circle, #ffe9a8 0 0.8px, transparent 1.4px);
+      background-size: 23px 29px, 41px 37px, 17px 19px;
+      background-position:
+        calc(var(--gx, 50%) * 0.2) calc(var(--gy, 50%) * 0.3),
+        calc(var(--gx, 50%) * -0.3) calc(var(--gy, 50%) * 0.2),
+        calc(var(--gy, 50%) * 0.25) calc(var(--gx, 50%) * -0.2);
+      mix-blend-mode: screen;
+      mask-image: radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), #000, transparent 65%);
+      opacity: calc(var(--glow, 0) * 0.95);
+    }
+    /* A slow light sweep, so a rare shines even when nobody is touching it. */
+    .shimmer {
+      background: linear-gradient(105deg, rgb(255 255 255 / 0) 40%, rgb(255 255 255 / 0.35) 50%, rgb(255 255 255 / 0) 60%);
+      background-size: 300% 100%;
+      background-repeat: no-repeat;
+      mix-blend-mode: screen;
+      opacity: 1;
+      animation: viewer-sweep 6s ease-in-out infinite;
+    }
+    .card[data-tier='ultra'] .shimmer {
+      background-image: linear-gradient(
+        105deg,
+        rgb(255 255 255 / 0) 32%,
+        rgb(255 60 170 / 0.4) 43%,
+        rgb(80 230 255 / 0.4) 50%,
+        rgb(255 235 80 / 0.4) 57%,
+        rgb(255 255 255 / 0) 68%
+      );
+      animation-duration: 4.5s;
+    }
+    @keyframes viewer-sweep {
+      0%,
+      50% {
+        background-position: 130% 0;
+      }
+      85%,
+      100% {
+        background-position: -30% 0;
+      }
+    }
+    .rarity {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .rarity[data-tier='rare'] {
+      color: #f7c95a;
+      border: 1px solid rgb(247 183 51 / 0.6);
+      background: rgb(247 183 51 / 0.12);
+      box-shadow: 0 0 14px rgb(247 183 51 / 0.25);
+    }
+    .rarity[data-tier='ultra'] {
+      color: #fff;
+      background: linear-gradient(90deg, #ff4fb4, #ffb84f, #4fffd2, #4fa8ff, #b44fff);
+      box-shadow: 0 0 16px rgb(168 85 247 / 0.5);
+      text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+      animation: viewer-rainbow 6s linear infinite;
+    }
+    @keyframes viewer-rainbow {
+      to {
+        filter: hue-rotate(360deg);
+      }
+    }
     @media (prefers-reduced-motion: reduce) {
       .deal {
         animation: none;
       }
       .card {
         transition: none;
+      }
+      .shimmer,
+      .rarity {
+        animation: none;
+      }
+      .shimmer {
+        display: none;
       }
     }
     .step {
@@ -389,7 +493,7 @@ export class CardViewerComponent implements OnInit {
     return card.imageLarge ?? this.prices.rowFor(card)?.image ?? card.image;
   });
 
-  protected readonly shiny = computed(() => isShiny(this.current()!));
+  protected readonly tier = computed(() => rarityTier(this.current()!));
   protected readonly dealFrom = signal<'up' | 'left' | 'right'>('up');
   private readonly touch = signal<Lean | null>(null);
   private readonly gyro = signal<Lean>({ nx: 0, ny: 0 });

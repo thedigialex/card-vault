@@ -110,18 +110,22 @@ export function ownedSortKey(card: CatalogCard, printingId: string): string {
   return `${card.sortKey}|${printingId}`;
 }
 
-/** Rarer cards get a warmer edge; the classes live in global.scss. */
-export function rarityClass(card: Pick<CatalogCard, 'rarity'>): string {
-  return `r-${card.rarity.toLowerCase()}`;
+export type RarityTier = 'common' | 'rare' | 'ultra';
+
+/** Gold-edged rarities across the games (Digimon SR, Pokémon RR/IR, Magic rare/mythic...). */
+const RARE = new Set('sr rr rh ir ace ar rad shr rare mythic'.split(' '));
+/** Purple-edged chase rarities (secret, special illustration, hyper, ultimate...). */
+const ULTRA = new Set('sec ur sir hr mhr sur utr scr qcsr cr ps pscr str gr gur pg'.split(' '));
+
+export function rarityTier(card: Pick<CatalogCard, 'rarity'>): RarityTier {
+  const rarity = card.rarity.toLowerCase();
+  return ULTRA.has(rarity) ? 'ultra' : RARE.has(rarity) ? 'rare' : 'common';
 }
 
-/** The rarities global.scss gives a gold or purple edge; the card viewer adds a holo sheen to them. */
-const SHINY = new Set(
-  'sr rr rh ir ace ar rad shr rare mythic sec ur sir hr mhr sur utr scr qcsr cr ps pscr str gr gur pg'.split(' '),
-);
-
-export function isShiny(card: Pick<CatalogCard, 'rarity'>): boolean {
-  return SHINY.has(card.rarity.toLowerCase());
+/** Rarer cards get a warmer edge and, for the tiers, a shine; the classes live in global.scss. */
+export function rarityClass(card: Pick<CatalogCard, 'rarity'>): string {
+  const tier = rarityTier(card);
+  return `r-${card.rarity.toLowerCase()}${tier === 'common' ? '' : ` tier-${tier}`}`;
 }
 
 export function printingLabel(card: CatalogCard, printingId: string): string {
