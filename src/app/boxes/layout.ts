@@ -8,7 +8,7 @@ export interface Box {
   order: number;
   /** A BOX_MODELS id; decides the drawing and, unless custom, the size. */
   model: string;
-  /** A BOX_COLORS id. */
+  /** A BOX_COLORS id or a `#rrggbb` hex. */
   color: string;
   /** Sorted boxes fill themselves from the library; hand-sorted ones keep whatever was dragged in. */
   autoSort: boolean;

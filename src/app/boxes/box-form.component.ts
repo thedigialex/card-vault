@@ -25,7 +25,17 @@ import { trashOutline } from 'ionicons/icons';
 import { CatalogService } from '../data/catalog.service';
 import { gameById } from '../games/games';
 import { Box3dComponent } from './box-3d.component';
-import { BOX_COLORS, BOX_MODELS, CUSTOM_MODEL, DEFAULT_COLOR, boxModel, rowWord, sizeOf } from './box-models';
+import {
+  BOX_COLORS,
+  BOX_MODELS,
+  CUSTOM_MODEL,
+  DEFAULT_COLOR,
+  boxColor,
+  boxModel,
+  normalizeHex,
+  rowWord,
+  sizeOf,
+} from './box-models';
 import { BoxDraft } from './box.service';
 import { Box } from './layout';
 
@@ -110,7 +120,7 @@ import { Box } from './layout';
         </ion-item>
       </ion-list>
 
-      <h3 class="section">Colour</h3>
+      <h3 class="section">Color</h3>
       <div class="swatches">
         @for (option of colors; track option.id) {
           <button
@@ -122,7 +132,24 @@ import { Box } from './layout';
             (click)="color.set(option.id)"
           ></button>
         }
+        <label class="swatch custom" [class.picked]="isCustom()" [style.background]="isCustom() ? hex() : null">
+          <input type="color" aria-label="Pick any color" [value]="hex()" (input)="color.set($any($event.target).value)" />
+        </label>
       </div>
+      <ion-list inset>
+        <ion-item>
+          <span slot="start" class="hex-dot" [style.background]="hex()"></span>
+          <ion-input
+            label="Hex"
+            labelPlacement="stacked"
+            placeholder="#ffffff"
+            maxlength="7"
+            autocapitalize="off"
+            [value]="hex()"
+            (ionInput)="setHex($event.detail.value)"
+          />
+        </ion-item>
+      </ion-list>
       <p class="hint">Boxes fill in the order you create them: the first box gets the lowest set numbers.</p>
       @if (box) {
         <ion-button class="delete" fill="clear" color="danger" expand="block" (click)="remove()">
@@ -176,6 +203,25 @@ import { Box } from './layout';
       border-color: var(--ion-text-color);
       transform: scale(1.12);
     }
+    .swatch.custom {
+      position: relative;
+      background: conic-gradient(#f56565, #ecc94b, #48bb78, #4299e1, #9f7aea, #ed64a6, #f56565);
+      input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        border: 0;
+        padding: 0;
+      }
+    }
+    .hex-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      box-shadow: 0 0 0 1px rgb(255 255 255 / 0.2);
+    }
     .hint {
       margin: 20px;
       color: var(--ion-color-medium);
@@ -221,6 +267,8 @@ export class BoxFormComponent implements OnInit {
     const { rows } = sizeOf(this.modelId(), this.rows(), this.rowCapacity());
     return Array.from({ length: Math.min(rows, 8) }, (_, row) => (row === 0 ? 0.75 : row === 1 ? 0.4 : 0.15));
   });
+  protected readonly hex = computed(() => boxColor(this.color()).front);
+  protected readonly isCustom = computed(() => this.color().startsWith('#'));
   protected readonly valid = computed(() => this.name().trim() !== '' && this.size() >= 1);
 
   constructor() {
@@ -241,6 +289,12 @@ export class BoxFormComponent implements OnInit {
 
   protected rowName(plural: boolean): string {
     return rowWord(this.model().shape, plural);
+  }
+
+  /** Only a full six-digit hex counts, so "#abc" on the way to "#abcdef" doesn't flash a colour. */
+  protected setHex(value: string | null | undefined): void {
+    const typed = (value ?? '').trim();
+    if (/^#?[0-9a-f]{6}$/i.test(typed)) this.color.set(normalizeHex(typed)!);
   }
 
   protected toNumber(value: string | null | undefined): number {

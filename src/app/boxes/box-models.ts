@@ -58,8 +58,28 @@ export function boxModel(id: string): BoxModel {
   return BOX_MODELS.find(model => model.id === id) ?? BOX_MODELS[BOX_MODELS.length - 1];
 }
 
+/** `#abc` or `#aabbcc` (any case) as lowercase `#aabbcc`, or null. */
+export function normalizeHex(value: string): string | null {
+  const hex = value.trim().replace(/^#?/, '#').toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(hex)) return hex;
+  if (/^#[0-9a-f]{3}$/.test(hex)) return `#${[...hex.slice(1)].map(c => c + c).join('')}`;
+  return null;
+}
+
+/** Blends a hex colour toward white (amount > 0) or black (amount < 0). */
+function shade(hex: string, amount: number): string {
+  const target = amount > 0 ? 255 : 0;
+  const parts = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  return `#${parts.map(c => Math.round(c + (target - c) * Math.abs(amount)).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** A preset id, or any `#rrggbb` the user picked (its top and side shades are derived). */
 export function boxColor(id: string): BoxColor {
-  return BOX_COLORS.find(color => color.id === id) ?? BOX_COLORS.find(color => color.id === DEFAULT_COLOR)!;
+  const preset = BOX_COLORS.find(color => color.id === id);
+  if (preset) return preset;
+  const hex = id.startsWith('#') ? normalizeHex(id) : null;
+  if (hex) return { id: hex, name: hex, front: hex, top: shade(hex, 0.18), side: shade(hex, -0.25) };
+  return BOX_COLORS.find(color => color.id === DEFAULT_COLOR)!;
 }
 
 /** Rows and capacity come from the model unless it's the custom one, where the user sets them. */
