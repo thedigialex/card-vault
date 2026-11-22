@@ -115,6 +115,15 @@ export function rarityClass(card: Pick<CatalogCard, 'rarity'>): string {
   return `r-${card.rarity.toLowerCase()}`;
 }
 
+/** The rarities global.scss gives a gold or purple edge; the card viewer adds a holo sheen to them. */
+const SHINY = new Set(
+  'sr rr rh ir ace ar rad shr rare mythic sec ur sir hr mhr sur utr scr qcsr cr ps pscr str gr gur pg'.split(' '),
+);
+
+export function isShiny(card: Pick<CatalogCard, 'rarity'>): boolean {
+  return SHINY.has(card.rarity.toLowerCase());
+}
+
 export function printingLabel(card: CatalogCard, printingId: string): string {
   if (printingId === REGULAR_PRINTING) return 'Regular';
   return card.printings.find(p => p.id === printingId)?.label ?? printingId;

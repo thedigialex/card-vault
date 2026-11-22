@@ -1,5 +1,5 @@
 import { CardSrcDirective } from '../shared/card-src.directive';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import {
   IonButton,
   IonButtons,
@@ -15,12 +15,24 @@ import {
 import { addIcons } from 'ionicons';
 import { chevronBack, chevronForward, closeOutline } from 'ionicons/icons';
 
-import { CatalogCard } from '../data/models';
+import { CatalogCard, isShiny } from '../data/models';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
 
 const MAX_SCALE = 6;
 const DOUBLE_TAP_MS = 300;
+/** Degrees the card leans at the very edge of a touch. */
+const MAX_TILT = 15;
+/** Degrees of phone tilt that lean the card all the way. */
+const GYRO_RANGE = 28;
+
+/** -1..1 across the card, from its centre. */
+interface Lean {
+  nx: number;
+  ny: number;
+}
+
+const clamp = (value: number) => Math.max(-1, Math.min(1, value));
 
 @Component({
   selector: 'app-card-viewer',
@@ -60,11 +72,27 @@ const DOUBLE_TAP_MS = 300;
             (pointerup)="up($event)"
             (pointercancel)="up($event)"
           >
-            <img
-              [cardSrc]="bigImage()"
-              [alt]="card.name"
-              [style.transform]="'translate(' + x() + 'px,' + y() + 'px) scale(' + scale() + ')'"
-            />
+            @for (shown of [card]; track shown.id) {
+              <div class="deal" [attr.data-from]="dealFrom()">
+                <div
+                  class="card"
+                  [class.tracking]="tracking()"
+                  [class.shiny]="shiny()"
+                  [style.transform]="transform()"
+                  [style.--gx.%]="light().x"
+                  [style.--gy.%]="light().y"
+                  [style.--glow]="light().strength"
+                  [style.--sx.px]="light().shadowX"
+                  [style.--sy.px]="light().shadowY"
+                >
+                  <img [cardSrc]="bigImage()" [alt]="shown.name" draggable="false" />
+                  <span class="glare"></span>
+                  @if (shiny()) {
+                    <span class="holo"></span>
+                  }
+                </div>
+              </div>
+            }
             @if (deck().length > 1) {
               <button class="step prev" [disabled]="index() === 0" aria-label="Previous card" (click)="step(-1)">
                 <ion-icon name="chevron-back" />
@@ -141,13 +169,98 @@ const DOUBLE_TAP_MS = 300;
       place-items: center;
       overflow: hidden;
       touch-action: none;
+      container-type: size;
+      perspective: 1100px;
+    }
+    .deal {
+      --w: min(92cqw, 86cqh * 63 / 88);
+      animation: deal-up 420ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+    }
+    .deal[data-from='right'] {
+      animation-name: deal-right;
+    }
+    .deal[data-from='left'] {
+      animation-name: deal-left;
+    }
+    @keyframes deal-up {
+      from {
+        opacity: 0;
+        transform: translateY(40px) scale(0.86) rotateX(24deg);
+      }
+    }
+    @keyframes deal-right {
+      from {
+        opacity: 0;
+        transform: translateX(70%) rotate(9deg) rotateY(-35deg);
+      }
+    }
+    @keyframes deal-left {
+      from {
+        opacity: 0;
+        transform: translateX(-70%) rotate(-9deg) rotateY(35deg);
+      }
+    }
+    .card {
+      position: relative;
+      width: var(--w);
+      aspect-ratio: 63 / 88;
+      border-radius: calc(var(--w) * 0.045);
+      overflow: hidden;
+      transform-origin: center;
+      will-change: transform;
+      box-shadow: var(--sx, 0px) calc(var(--sy, 0px) + 16px) 38px rgb(0 0 0 / 0.65);
+      transition:
+        transform 520ms cubic-bezier(0.2, 1.5, 0.4, 1),
+        box-shadow 520ms ease;
       img {
-        max-width: 100%;
-        max-height: 100%;
-        transform-origin: center;
-        will-change: transform;
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
         user-select: none;
         -webkit-user-drag: none;
+        pointer-events: none;
+      }
+    }
+    /* Under a finger the card tracks it closely; let go and it springs back. */
+    .card.tracking {
+      transition:
+        transform 70ms linear,
+        box-shadow 70ms linear;
+    }
+    .glare,
+    .holo {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: var(--glow, 0);
+      transition: opacity 300ms ease;
+    }
+    .glare {
+      background: radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgb(255 255 255 / 0.42), rgb(255 255 255 / 0) 50%);
+      mix-blend-mode: screen;
+    }
+    .holo {
+      background: linear-gradient(
+        115deg,
+        transparent 18%,
+        rgb(255 0 140 / 0.45) 34%,
+        rgb(0 230 255 / 0.45) 46%,
+        rgb(255 240 0 / 0.45) 58%,
+        rgb(160 80 255 / 0.45) 70%,
+        transparent 84%
+      );
+      background-size: 260% 260%;
+      background-position: var(--gx, 50%) var(--gy, 50%);
+      mix-blend-mode: color-dodge;
+      opacity: calc(var(--glow, 0) * 0.75);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .deal {
+        animation: none;
+      }
+      .card {
+        transition: none;
       }
     }
     .step {
@@ -276,7 +389,36 @@ export class CardViewerComponent implements OnInit {
     return card.imageLarge ?? this.prices.rowFor(card)?.image ?? card.image;
   });
 
+  protected readonly shiny = computed(() => isShiny(this.current()!));
+  protected readonly dealFrom = signal<'up' | 'left' | 'right'>('up');
+  private readonly touch = signal<Lean | null>(null);
+  private readonly gyro = signal<Lean>({ nx: 0, ny: 0 });
+  private readonly dragX = signal(0);
+  /** Any finger down: zoom, pan and tilt follow it directly instead of springing. */
+  protected readonly tracking = signal(false);
+  protected readonly held = computed(() => !!this.touch() && this.scale() === 1);
+  private readonly lean = computed<Lean>(() => (this.scale() > 1 ? { nx: 0, ny: 0 } : (this.touch() ?? this.gyro())));
+
+  protected readonly transform = computed(() => {
+    const { nx, ny } = this.lean();
+    const lift = this.held() ? 1.04 : 1;
+    const drag = this.dragX();
+    return (
+      `translate(${this.x() + drag}px, ${this.y()}px) scale(${this.scale() * lift}) ` +
+      `rotateX(${-ny * MAX_TILT}deg) rotateY(${nx * MAX_TILT}deg) rotate(${drag * 0.035}deg)`
+    );
+  });
+
+  /** Where the light catches the card, and how strongly: full under a finger, gentler from the phone's tilt. */
+  protected readonly light = computed(() => {
+    const { nx, ny } = this.lean();
+    const strength = this.held() ? 1 : Math.min(1, Math.hypot(nx, ny) * 1.4) * 0.8;
+    return { x: 50 + nx * 50, y: 50 + ny * 50, strength, shadowX: -nx * 18, shadowY: -ny * 14 };
+  });
+
   private pointers = new Map<number, { x: number; y: number }>();
+  private cardRect: DOMRect | null = null;
+  private gyroBase: { beta: number; gamma: number } | null = null;
   private swipeFrom: { x: number; y: number } | null = null;
   private startDistance = 0;
   private startScale = 1;
@@ -284,6 +426,11 @@ export class CardViewerComponent implements OnInit {
 
   constructor() {
     addIcons({ closeOutline, chevronBack, chevronForward });
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const listener = (event: DeviceOrientationEvent) => this.tilted(event);
+      addEventListener('deviceorientation', listener);
+      inject(DestroyRef).onDestroy(() => removeEventListener('deviceorientation', listener));
+    }
   }
 
   ngOnInit(): void {
@@ -291,9 +438,33 @@ export class CardViewerComponent implements OnInit {
     if (start > 0) this.index.set(start);
   }
 
+  /** The phone's lean relative to how it's being held; the rest position drifts so any grip feels level. */
+  private tilted({ beta, gamma }: DeviceOrientationEvent): void {
+    if (beta === null || gamma === null) return;
+    const base = (this.gyroBase ??= { beta, gamma });
+    base.beta += (beta - base.beta) * 0.015;
+    base.gamma += (gamma - base.gamma) * 0.015;
+    const target = { nx: clamp((gamma - base.gamma) / GYRO_RANGE), ny: clamp(-(beta - base.beta) / GYRO_RANGE) };
+    const now = this.gyro();
+    // Smoothed, so sensor jitter doesn't make the card shiver.
+    const next = { nx: now.nx + (target.nx - now.nx) * 0.25, ny: now.ny + (target.ny - now.ny) * 0.25 };
+    if (Math.abs(next.nx - now.nx) + Math.abs(next.ny - now.ny) > 0.004) this.gyro.set(next);
+  }
+
+  private leanAt(event: PointerEvent): void {
+    const rect = this.cardRect;
+    if (!rect) return;
+    this.touch.set({
+      nx: clamp((event.clientX - (rect.left + rect.width / 2)) / (rect.width / 2)),
+      ny: clamp((event.clientY - (rect.top + rect.height / 2)) / (rect.height / 2)),
+    });
+  }
+
   protected step(by: number): void {
     const next = this.index() + by;
     if (next < 0 || next >= this.deck().length) return;
+    this.dealFrom.set(by > 0 ? 'right' : 'left');
+    this.dragX.set(0);
     this.index.set(next);
     this.scale.set(1);
     this.centre();
@@ -302,8 +473,14 @@ export class CardViewerComponent implements OnInit {
   protected down(event: PointerEvent): void {
     (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (this.pointers.size === 1) this.swipeFrom = { x: event.clientX, y: event.clientY };
+    if (this.pointers.size === 1) {
+      this.swipeFrom = { x: event.clientX, y: event.clientY };
+      this.cardRect = (event.currentTarget as HTMLElement).querySelector('.card')?.getBoundingClientRect() ?? null;
+      if (this.scale() === 1) this.leanAt(event);
+    }
     if (this.pointers.size === 2) {
+      this.touch.set(null);
+      this.dragX.set(0);
       this.startDistance = this.distance();
       this.startScale = this.scale();
       return;
@@ -317,6 +494,7 @@ export class CardViewerComponent implements OnInit {
     const previous = this.pointers.get(event.pointerId);
     if (!previous) return;
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    this.tracking.set(true);
 
     if (this.pointers.size >= 2) {
       const ratio = this.distance() / (this.startDistance || 1);
@@ -324,7 +502,12 @@ export class CardViewerComponent implements OnInit {
       if (this.scale() === 1) this.centre();
       return;
     }
-    if (this.scale() === 1) return;
+    if (this.scale() === 1) {
+      this.leanAt(event);
+      // The card follows a sideways drag (only a little when there's nowhere to swipe to).
+      if (this.swipeFrom) this.dragX.set((event.clientX - this.swipeFrom.x) * (this.deck().length > 1 ? 0.85 : 0.2));
+      return;
+    }
     this.x.update(value => value + (event.clientX - previous.x));
     this.y.update(value => value + (event.clientY - previous.y));
   }
@@ -332,6 +515,11 @@ export class CardViewerComponent implements OnInit {
   protected up(event: PointerEvent): void {
     this.pointers.delete(event.pointerId);
     if (this.pointers.size < 2) this.startDistance = 0;
+    if (!this.pointers.size) {
+      this.tracking.set(false);
+      this.touch.set(null);
+      this.dragX.set(0);
+    }
     // A flick across an unzoomed card turns the page; zoomed in, the same gesture pans instead.
     const from = this.swipeFrom;
     this.swipeFrom = null;
