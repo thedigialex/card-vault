@@ -4,7 +4,7 @@ import { bookmark, diamond, flame, flash, heart, layers, star, trophy } from 'io
 export interface CardList {
   id?: number;
   name: string;
-  /** A BOX_COLORS id, so lists and boxes share one palette. */
+  /** A BOX_COLORS id or a #rrggbb hex, so lists and boxes share one palette. */
   color: string;
   icon: string;
   order: number;
@@ -28,7 +28,7 @@ export function registerListIcons(): void {
 
 export const LIST_PRESETS = [
   { name: 'Deck', icon: 'layers', color: 'blue' },
-  { name: 'Favourites', icon: 'star', color: 'amber' },
+  { name: 'Favorites', icon: 'star', color: 'amber' },
   { name: 'Rare cards', icon: 'diamond', color: 'purple' },
   { name: 'For trade', icon: 'flash', color: 'green' },
 ];

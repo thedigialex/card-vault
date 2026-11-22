@@ -102,7 +102,7 @@ export class ListService {
     return id;
   }
 
-  async rename(id: number, changes: Partial<CardList>): Promise<void> {
+  async update(id: number, changes: Partial<CardList>): Promise<void> {
     await this.db.lists.update(id, changes);
     await this.reload();
   }

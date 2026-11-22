@@ -2,7 +2,6 @@ import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
-  AlertController,
   IonButton,
   IonButtons,
   IonContent,
@@ -21,6 +20,7 @@ import { gameById } from '../games/games';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
 import { LIST_PRESETS, registerListIcons } from '../lists/list-models';
+import { ListDraft, ListFormComponent } from '../lists/list-form.component';
 import { ListService } from '../lists/list.service';
 import { Box3dComponent } from './box-3d.component';
 import { boxColor } from './box-models';
@@ -262,7 +262,6 @@ export class BoxesPage {
   protected readonly collection = inject(CollectionService);
   protected readonly prices = inject(PriceService);
   private readonly modals = inject(ModalController);
-  private readonly alerts = inject(AlertController);
   protected readonly lists = inject(ListService);
 
   protected readonly summary = computed(() =>
@@ -292,21 +291,11 @@ export class BoxesPage {
 
   protected async createList(): Promise<void> {
     const taken = new Set(this.lists.lists().map(list => list.name.toLowerCase()));
-    const preset = LIST_PRESETS.find(option => !taken.has(option.name.toLowerCase())) ?? LIST_PRESETS[0];
-    const alert = await this.alerts.create({
-      header: 'New list',
-      inputs: [{ name: 'name', type: 'text', placeholder: 'Deck, Favourites, Rare cards…', value: preset.name }],
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Create', role: 'confirm' },
-      ],
-    });
-    await alert.present();
-    const { data, role } = await alert.onDidDismiss<{ values: { name: string } }>();
-    const name = data?.values.name?.trim();
-    if (role !== 'confirm' || !name) return;
-    const match = LIST_PRESETS.find(option => option.name.toLowerCase() === name.toLowerCase());
-    await this.lists.create(name, match?.icon ?? 'layers', match?.color ?? 'blue');
+    const suggested = LIST_PRESETS.find(option => !taken.has(option.name.toLowerCase())) ?? LIST_PRESETS[0];
+    const modal = await this.modals.create({ component: ListFormComponent, componentProps: { suggested } });
+    await modal.present();
+    const { data, role } = await modal.onDidDismiss<ListDraft>();
+    if (role === 'save' && data) await this.lists.create(data.name, data.icon, data.color);
   }
 
   protected async create(): Promise<void> {

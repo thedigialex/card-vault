@@ -2,7 +2,6 @@ import { CardSrcDirective } from '../shared/card-src.directive';
 import { Component, computed, inject, input } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
-  AlertController,
   IonBackButton,
   IonButton,
   IonButtons,
@@ -11,6 +10,7 @@ import {
   IonIcon,
   IonTitle,
   IonToolbar,
+  ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
 import { createOutline, trashOutline } from 'ionicons/icons';
@@ -18,6 +18,7 @@ import { createOutline, trashOutline } from 'ionicons/icons';
 import { boxColor } from '../boxes/box-models';
 import { AddCardService } from '../data/add-card.service';
 import { MoneyPipe } from '../prices/money.pipe';
+import { ListDraft, ListFormComponent } from './list-form.component';
 import { registerListIcons } from './list-models';
 import { ListCard, ListService } from './list.service';
 
@@ -35,11 +36,8 @@ import { ListCard, ListService } from './list.service';
         </ion-buttons>
         <ion-title>{{ list()?.name }}</ion-title>
         <ion-buttons slot="end">
-          <ion-button (click)="rename()" aria-label="Rename list">
+          <ion-button (click)="edit()" aria-label="Edit list">
             <ion-icon slot="icon-only" name="create-outline" />
-          </ion-button>
-          <ion-button (click)="remove()" aria-label="Delete list">
-            <ion-icon slot="icon-only" name="trash-outline" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -123,7 +121,7 @@ import { ListCard, ListService } from './list.service';
 export class ListPage {
   private readonly lists = inject(ListService);
   private readonly cardSheets = inject(AddCardService);
-  private readonly alerts = inject(AlertController);
+  private readonly modals = inject(ModalController);
   private readonly router = inject(Router);
 
   readonly id = input.required<string>();
@@ -148,38 +146,16 @@ export class ListPage {
     await this.lists.removeEntry(row.entry.id!);
   }
 
-  protected async rename(): Promise<void> {
+  protected async edit(): Promise<void> {
     const list = this.list();
     if (!list) return;
-    const alert = await this.alerts.create({
-      header: 'Rename list',
-      inputs: [{ name: 'name', type: 'text', value: list.name }],
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Save', role: 'confirm' },
-      ],
-    });
-    await alert.present();
-    const { data, role } = await alert.onDidDismiss<{ values: { name: string } }>();
-    const name = data?.values.name?.trim();
-    if (role === 'confirm' && name) await this.lists.rename(list.id!, { name });
-  }
-
-  protected async remove(): Promise<void> {
-    const list = this.list();
-    if (!list) return;
-    const alert = await this.alerts.create({
-      header: `Delete ${list.name}?`,
-      message: 'The cards stay in your library; only the list goes.',
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Delete', role: 'destructive' },
-      ],
-    });
-    await alert.present();
-    const { role } = await alert.onDidDismiss();
-    if (role !== 'destructive') return;
-    await this.lists.remove(list.id!);
-    await this.router.navigateByUrl('/tabs/boxes');
+    const modal = await this.modals.create({ component: ListFormComponent, componentProps: { list } });
+    await modal.present();
+    const { data, role } = await modal.onDidDismiss<ListDraft>();
+    if (role === 'save' && data) await this.lists.update(list.id!, data);
+    if (role === 'delete') {
+      await this.lists.remove(list.id!);
+      await this.router.navigateByUrl('/tabs/boxes');
+    }
   }
 }

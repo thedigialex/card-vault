@@ -351,6 +351,23 @@ button.pill {
   }
 }
 
+/* Edit forms (box, list): delete at the end of the form, save pinned below it. */
+.form-delete {
+  margin: 8px 16px 24px;
+}
+
+ion-footer.form-footer ion-toolbar {
+  padding: 8px 16px calc(8px + var(--ion-safe-area-bottom));
+}
+
+.form-section {
+  margin: 20px 20px 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ion-color-medium);
+}
+
 /* Dragging a card between rows (Angular CDK). */
 .cdk-drag-preview {
   border-radius: 8px;
