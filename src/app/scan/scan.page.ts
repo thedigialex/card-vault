@@ -35,6 +35,7 @@ import { PriceService } from '../prices/price.service';
 import { NotifyService } from '../shared/notify.service';
 import { RepeatGuard, acceptable, afterAdd, afterFrame, emptyGuard } from './auto-scan';
 import { guideInVideo } from './crop';
+import { GameVote } from './game-detect';
 import { NameIndex } from './name-match';
 import { ScanSoundService } from './scan-sound';
 
@@ -85,6 +86,16 @@ interface AddedCard {
       </ion-toolbar>
       <ion-toolbar>
         <ion-item lines="none">
+          <ion-select label="Game" labelPlacement="fixed" interface="action-sheet" [value]="gameChoice()" (ionChange)="chooseGame($event.detail.value)">
+            <ion-select-option value="auto">Auto-detect</ion-select-option>
+            @for (game of games; track game.id) {
+              <ion-select-option [value]="game.id">{{ game.name }}</ion-select-option>
+            }
+          </ion-select>
+        </ion-item>
+      </ion-toolbar>
+      <ion-toolbar>
+        <ion-item lines="none">
           <ion-select label="File into" labelPlacement="fixed" interface="action-sheet" [value]="targetBox()" (ionChange)="targetBox.set($event.detail.value)">
             <ion-select-option [value]="0">Unboxed pile</ion-select-option>
             @for (box of handSorted(); track box.id) {
@@ -128,6 +139,11 @@ interface AddedCard {
           </div>
           @if (scanning()) {
             <div class="live" [class.blink]="frames() % 2 === 1"><span></span> Scanning</div>
+          }
+          @if (ready() && activeGameName(); as name) {
+            <div class="game-badge" [class.locked]="gameChoice() !== 'auto'">
+              {{ gameChoice() === 'auto' ? 'Looks like ' + name : name }}
+            </div>
           }
           @if (ready()) {
             <div class="status-panel">
@@ -327,6 +343,22 @@ interface AddedCard {
         top: 50%;
       }
     }
+    .game-badge {
+      position: absolute;
+      top: 44px;
+      left: 12px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: rgb(91 124 250 / 0.85);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+
+      &.locked {
+        background: rgb(247 183 51 / 0.9);
+        color: #1a1a1a;
+      }
+    }
     .live {
       position: absolute;
       top: 12px;
@@ -504,6 +536,15 @@ export class ScanPage {
   protected readonly found = signal<CatalogCard | null>(null);
   /** A card from a set (or game) that isn't downloaded yet, offered for download right here. */
   protected readonly offer = signal<SetOffer | null>(null);
+  protected readonly games = GAMES;
+  /** 'auto' lets the printed words decide; picking a game locks the scanner to it. */
+  protected readonly gameChoice = signal('auto');
+  private readonly detected = signal<string | null>(null);
+  protected readonly activeGame = computed(() => (this.gameChoice() === 'auto' ? this.detected() : this.gameChoice()));
+  protected readonly activeGameName = computed(() => {
+    const game = gameById(this.activeGame() ?? '');
+    return game ? (game.shortName ?? game.name) : '';
+  });
   protected readonly downloading = signal(false);
   /** Cards sharing the found card's name, when it was recognised by name rather than number. */
   protected readonly alternatives = signal<CatalogCard[]>([]);
@@ -533,6 +574,7 @@ export class ScanPage {
   private guard: RepeatGuard = emptyGuard();
   private resumeAt = 0;
   private lastUnknown = '';
+  private readonly vote = new GameVote();
   private readonly setLookups = new Map<string, Promise<GameSet | undefined>>();
   /** Sets the user said "Not now" to, by game:code, for this visit to the scanner. */
   private readonly declined = new Set<string>();
@@ -633,6 +675,7 @@ export class ScanPage {
       const { uri } = await Filesystem.writeFile({ path: 'scan-frame.jpg', data, directory: Directory.Cache });
       const { text } = await TextRecognition.processImage({ path: uri });
       this.frames.update(n => n + 1);
+      if (this.gameChoice() === 'auto') this.detected.set(this.vote.add(text));
       const read = this.match(text);
       this.pendingAlternatives = read.alternatives;
       this.consider(read.card);
@@ -649,17 +692,36 @@ export class ScanPage {
 
   /** The printed number wins; the name is the fallback for numbers too small for the camera. */
   private match(text: string): { card: CatalogCard | null; candidates: string[]; alternatives: CatalogCard[] } {
-    const candidates = this.gameIds().flatMap(id => gameById(id)?.scanCandidates(text) ?? []);
+    // Once the game is known, other games' number shapes and names can't cause a wrong match.
+    const active = this.activeGame();
+    const inGame = (card: CatalogCard) => !active || card.game === active;
+    const candidates = (active ? [active] : this.gameIds()).flatMap(id => gameById(id)?.scanCandidates(text) ?? []);
     for (const number of candidates) {
       const card = this.byNumber.get(number);
-      if (card) return { card, candidates, alternatives: [] };
+      if (card && inGame(card)) return { card, candidates, alternatives: [] };
     }
-    const named = this.names.find(text);
+    // A guessed game can be wrong; a number found in another downloaded game still counts unless locked.
+    if (active && this.gameChoice() === 'auto') {
+      for (const id of this.gameIds().filter(id => id !== active)) {
+        for (const number of gameById(id)?.scanCandidates(text) ?? []) {
+          const card = this.byNumber.get(number);
+          if (card?.game === id) return { card, candidates, alternatives: [] };
+        }
+      }
+    }
+    const named = this.names.find(text).filter(inGame);
     // Auto mode can't ask which printing, so it only trusts a name that belongs to one card.
     if (named.length && (this.mode() === 'manual' || named.length === 1)) {
       return { card: named[0], candidates, alternatives: named };
     }
     return { card: null, candidates, alternatives: [] };
+  }
+
+  protected chooseGame(choice: string): void {
+    this.gameChoice.set(choice);
+    this.vote.reset();
+    this.detected.set(null);
+    this.lastUnknown = '';
   }
 
   protected choose(card: CatalogCard): void {
@@ -674,7 +736,9 @@ export class ScanPage {
   private lookForMissingSet(text: string): void {
     if (this.offer() || this.downloading()) return;
     const installed = new Set(this.gameIds());
-    const reads = GAMES.map(game => ({ game, numbers: game.scanCandidates(text) }))
+    const active = this.activeGame();
+    const reads = GAMES.filter(game => !active || game.id === active)
+      .map(game => ({ game, numbers: game.scanCandidates(text) }))
       .sort((a, b) => Number(installed.has(b.game.id)) - Number(installed.has(a.game.id)))
       .flatMap(({ game, numbers }) => numbers.map(number => ({ gameId: game.id, number })))
       .filter(read => !this.byNumber.has(read.number))
@@ -750,7 +814,8 @@ export class ScanPage {
       this.status.set(`Read ${candidates[0]}, but it isn't in your downloaded cards`);
       this.hint.set('Check its set is picked on the Games tab, or hold steady for another read.');
     } else if (text.trim()) {
-      this.status.set('Seeing the card, looking for its number…');
+      const name = this.activeGameName();
+      this.status.set(name ? `${name} card, looking for its number…` : 'Seeing the card, looking for its number…');
       this.hint.set(this.misses > 8 ? 'Hold the card flat and steady so its name or number is sharp.' : '');
     } else {
       this.lookingStatus();
