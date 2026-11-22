@@ -66,6 +66,35 @@ export function normalizeHex(value: string): string | null {
   return null;
 }
 
+/** Hue 0-360 (0 = red), saturation and value 0-1. */
+export interface Hsv {
+  h: number;
+  s: number;
+  v: number;
+}
+
+export function hsvToHex({ h, s, v }: Hsv): string {
+  const channel = (n: number) => {
+    const k = (n + h / 60) % 6;
+    const c = v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, '0');
+  };
+  return `#${channel(5)}${channel(3)}${channel(1)}`;
+}
+
+export function hexToHsv(hex: string): Hsv {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const delta = max - Math.min(r, g, b);
+  let h = 0;
+  if (delta) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+  }
+  return { h: (h * 60 + 360) % 360, s: max ? delta / max : 0, v: max };
+}
+
 /** Blends a hex colour toward white (amount > 0) or black (amount < 0). */
 function shade(hex: string, amount: number): string {
   const target = amount > 0 ? 255 : 0;
