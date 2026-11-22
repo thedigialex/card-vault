@@ -1,3 +1,4 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import {
   IonButton,
@@ -23,7 +24,7 @@ const DOUBLE_TAP_MS = 300;
 
 @Component({
   selector: 'app-card-viewer',
-  imports: [
+  imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent, IonSegment, IonSegmentButton,
     MoneyPipe,
   ],
@@ -60,7 +61,7 @@ const DOUBLE_TAP_MS = 300;
             (pointercancel)="up($event)"
           >
             <img
-              [src]="bigImage()"
+              [cardSrc]="bigImage()"
               [alt]="card.name"
               [style.transform]="'translate(' + x() + 'px,' + y() + 'px) scale(' + scale() + ')'"
             />
@@ -272,7 +273,7 @@ export class CardViewerComponent implements OnInit {
     const card = this.current();
     if (!card) return '';
     // Never a variant's art here: that would show a different printing than the card asked for.
-    return this.prices.rowFor(card)?.image ?? card.image;
+    return card.imageLarge ?? this.prices.rowFor(card)?.image ?? card.image;
   });
 
   private pointers = new Map<number, { x: number; y: number }>();

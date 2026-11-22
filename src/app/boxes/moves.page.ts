@@ -1,3 +1,4 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
@@ -36,7 +37,7 @@ interface MoveStep {
 
 @Component({
   selector: 'app-moves',
-  imports: [
+  imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonList, IonItemGroup, IonItemDivider,
     IonItem, IonLabel, IonNote, IonThumbnail, IonCheckbox, IonFooter, IonButton, IonIcon,
   ],
@@ -60,7 +61,7 @@ interface MoveStep {
             @for (step of group.steps; track step.move.ownedId) {
               <ion-item [class.done]="done().has(step.move.ownedId)">
                 <ion-thumbnail slot="start">
-                  <img class="card-thumb" [src]="step.image" [alt]="step.name" loading="lazy" />
+                  <img class="card-thumb" [cardSrc]="step.image" [alt]="step.name" loading="lazy" />
                 </ion-thumbnail>
                 <ion-label class="ion-text-wrap">
                   <h2>{{ step.name }} · {{ step.number }}</h2>

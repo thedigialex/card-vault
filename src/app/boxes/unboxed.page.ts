@@ -1,3 +1,4 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { Component, computed, inject } from '@angular/core';
 import {
   ActionSheetController,
@@ -21,7 +22,7 @@ import { BoxService } from './box.service';
 
 @Component({
   selector: 'app-unboxed',
-  imports: [IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonIcon, ListMarksComponent],
+  imports: [CardSrcDirective, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonIcon, ListMarksComponent],
   template: `
     <ion-header>
       <ion-toolbar>
@@ -40,7 +41,7 @@ import { BoxService } from './box.service';
         <div class="card-grid">
           @for (slot of entries(); track slot.entry.owned.id) {
             <button class="card-tile" [class]="slot.rarity" (click)="file(slot.entry)">
-              <img [src]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
+              <img [cardSrc]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
               <app-list-marks [ownedId]="slot.entry.owned.id" />
               <span class="tile-caption">{{ slot.entry.card.number }}</span>
             </button>

@@ -92,7 +92,8 @@ import { SetPick, SetPickerComponent } from './set-picker.component';
 
       <p class="ion-padding-horizontal hint">
         Card data is downloaded once and kept on this device; your collection never leaves the phone.
-        Prices are TCGplayer market snapshots from worththerip.com (Magic's come from Scryfall).
+        Prices are TCGplayer market snapshots from worththerip.com. Magic's come from Scryfall; Yu-Gi-Oh! sets
+        Worth the Rip doesn't cover use YGOPRODeck's prices.
       </p>
     </ion-content>
   `,
@@ -168,7 +169,8 @@ export class GamesPage {
       const result = await this.catalog.install(gameId, { sets, withPrices: this.withPrices() });
       parts.push(`${result.cards.toLocaleString()} cards`);
       if (result.priced !== undefined) {
-        parts.push(`${result.priced.toLocaleString()} priced`);
+        // A game with a second price step reports one combined count after it.
+        if (!game?.priceGame) parts.push(`${result.priced.toLocaleString()} priced`);
         await this.prices.reload();
       }
     } catch (error) {

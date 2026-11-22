@@ -1,3 +1,5 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
+import { DecimalPipe } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
@@ -16,6 +18,7 @@ import {
   IonSegmentButton,
   IonSelect,
   IonSelectOption,
+  IonProgressBar,
   IonSpinner,
   IonTitle,
   IonToolbar,
@@ -26,15 +29,29 @@ import { volumeHighOutline, volumeMuteOutline } from 'ionicons/icons';
 import { BoxService } from '../boxes/box.service';
 import { CatalogService } from '../data/catalog.service';
 import { CollectionService } from '../data/collection.service';
-import { CatalogCard, REGULAR_PRINTING, printingLabel } from '../data/models';
-import { gameById } from '../games/games';
+import { CatalogCard, GameSet, REGULAR_PRINTING, printingLabel } from '../data/models';
+import { GAMES, gameById } from '../games/games';
+import { PriceService } from '../prices/price.service';
 import { NotifyService } from '../shared/notify.service';
 import { RepeatGuard, acceptable, afterAdd, afterFrame, emptyGuard } from './auto-scan';
+import { guideInVideo } from './crop';
 import { NameIndex } from './name-match';
 import { ScanSoundService } from './scan-sound';
 
 const FRAME_INTERVAL_MS = 600;
 const FRAME_MAX_SIDE = 1600;
+
+const MAX_SET_LOOKUPS = 3;
+
+interface SetOffer {
+  key: string;
+  gameId: string;
+  gameName: string;
+  number: string;
+  set: GameSet;
+  /** The game comes as one download and isn't installed, so the whole game is fetched. */
+  wholeGame: boolean;
+}
 
 interface AddedCard {
   card: CatalogCard;
@@ -43,9 +60,9 @@ interface AddedCard {
 
 @Component({
   selector: 'app-scan',
-  imports: [
+  imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonContent, IonSegment, IonSegmentButton,
-    IonChip, IonItem, IonInput, IonIcon, IonSelect, IonSelectOption, IonSpinner,
+    IonChip, IonItem, IonInput, IonIcon, IonSelect, IonSelectOption, IonSpinner, IonProgressBar, DecimalPipe,
   ],
   template: `
     <ion-header>
@@ -101,6 +118,7 @@ interface AddedCard {
             </div>
           }
           <div
+            #guide
             class="guide"
             [class.locked]="found() || cooldown() > 0"
             [class.reading]="phase() === 'reading'"
@@ -132,7 +150,7 @@ interface AddedCard {
 
         @if (found(); as card) {
           <div class="result">
-            <img class="card-thumb" [src]="card.image" [alt]="card.name" />
+            <img class="card-thumb" [cardSrc]="card.image" [alt]="card.name" />
             <div class="details">
               <h2>{{ card.name }}</h2>
               <p>{{ card.number }} · {{ card.rarity }}</p>
@@ -162,10 +180,40 @@ interface AddedCard {
               </div>
             </div>
           </div>
+        } @else if (offer(); as offer) {
+          <div class="offer">
+            <div class="offer-text">
+              <strong>{{ offer.number }} is from {{ offer.set.name }}</strong>
+              <p>
+                {{ offer.gameName }} ·
+                @if (offer.wholeGame) {
+                  downloads the whole game
+                } @else {
+                  {{ offer.set.cardCount | number }} cards
+                }
+              </p>
+              @if (downloading()) {
+                <ion-progress-bar
+                  [value]="catalog.progress()"
+                  [type]="catalog.progress() === undefined ? 'indeterminate' : 'determinate'"
+                />
+              }
+            </div>
+            <div class="actions">
+              <ion-button fill="outline" [disabled]="downloading()" (click)="dismissOffer(offer)">Not now</ion-button>
+              <ion-button [disabled]="downloading()" (click)="acceptOffer(offer)">
+                @if (downloading()) {
+                  <ion-spinner name="dots" />
+                } @else {
+                  Download
+                }
+              </ion-button>
+            </div>
+          </div>
         } @else if (mode() === 'auto' && added().length) {
           <div class="recent">
             <div class="last">
-              <img class="card-thumb" [src]="added()[0].card.image" [alt]="added()[0].card.name" />
+              <img class="card-thumb" [cardSrc]="added()[0].card.image" [alt]="added()[0].card.name" />
               <div>
                 <strong>{{ added()[0].card.name }}</strong>
                 <p>{{ added()[0].card.number }} added</p>
@@ -174,7 +222,7 @@ interface AddedCard {
             </div>
             <div class="strip">
               @for (entry of added().slice(1, 8); track entry.ownedId) {
-                <img class="card-thumb" [src]="entry.card.image" [alt]="entry.card.name" />
+                <img class="card-thumb" [cardSrc]="entry.card.image" [alt]="entry.card.name" />
               }
             </div>
           </div>
@@ -379,6 +427,24 @@ interface AddedCard {
       gap: 8px;
       margin-top: 6px;
     }
+    .offer {
+      padding: 12px 16px calc(12px + var(--ion-safe-area-bottom, 0px));
+      background: var(--ion-background-color, #fff);
+      border-top: 2px solid #f7b733;
+
+      strong {
+        display: block;
+        font-size: 15px;
+      }
+      p {
+        margin: 2px 0 0;
+        font-size: 13px;
+        color: var(--ion-color-medium);
+      }
+      ion-progress-bar {
+        margin-top: 8px;
+      }
+    }
     .recent {
       padding: 10px 16px calc(10px + var(--ion-safe-area-bottom, 0px));
       background: var(--ion-background-color, #fff);
@@ -418,9 +484,11 @@ export class ScanPage {
   protected readonly catalog = inject(CatalogService);
   protected readonly collection = inject(CollectionService);
   private readonly notify = inject(NotifyService);
+  private readonly prices = inject(PriceService);
   private readonly sounds = inject(ScanSoundService);
   private readonly boxes = inject(BoxService);
   private readonly video = viewChild.required<ElementRef<HTMLVideoElement>>('video');
+  private readonly guideBox = viewChild.required<ElementRef<HTMLElement>>('guide');
 
   protected readonly native = Capacitor.isNativePlatform();
   protected readonly regular = REGULAR_PRINTING;
@@ -434,6 +502,9 @@ export class ScanPage {
   protected readonly ready = signal(false);
   protected readonly failed = signal(false);
   protected readonly found = signal<CatalogCard | null>(null);
+  /** A card from a set (or game) that isn't downloaded yet, offered for download right here. */
+  protected readonly offer = signal<SetOffer | null>(null);
+  protected readonly downloading = signal(false);
   /** Cards sharing the found card's name, when it was recognised by name rather than number. */
   protected readonly alternatives = signal<CatalogCard[]>([]);
   protected readonly printing = signal(REGULAR_PRINTING);
@@ -461,6 +532,10 @@ export class ScanPage {
   private ignored: string | null = null;
   private guard: RepeatGuard = emptyGuard();
   private resumeAt = 0;
+  private lastUnknown = '';
+  private readonly setLookups = new Map<string, Promise<GameSet | undefined>>();
+  /** Sets the user said "Not now" to, by game:code, for this visit to the scanner. */
+  private readonly declined = new Set<string>();
   private misses = 0;
   private readonly canvas = document.createElement('canvas');
 
@@ -468,12 +543,8 @@ export class ScanPage {
     addIcons({ volumeHighOutline, volumeMuteOutline });
     // The installed games arrive from the database a moment after the page opens.
     effect(() => {
+      // With no games yet, scanning still works: the first card read offers its game for download.
       if (!this.entered() || this.starting || !this.catalog.loaded()) return;
-      if (!this.gameIds().length) {
-        this.failed.set(true);
-        this.status.set('Download a game on the Games tab first.');
-        return;
-      }
       this.starting = true;
       void this.start();
     });
@@ -546,10 +617,18 @@ export class ScanPage {
     if (this.busy || this.found() || !video.videoWidth) return;
     this.busy = true;
     try {
-      const scale = Math.min(1, FRAME_MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
-      this.canvas.width = Math.round(video.videoWidth * scale);
-      this.canvas.height = Math.round(video.videoHeight * scale);
-      this.canvas.getContext('2d')!.drawImage(video, 0, 0, this.canvas.width, this.canvas.height);
+      // Only the guide is read: a binder page or a table full of cards would otherwise mix their text in.
+      const crop = guideInVideo(
+        { width: video.videoWidth, height: video.videoHeight },
+        video.getBoundingClientRect(),
+        this.guideBox().nativeElement.getBoundingClientRect(),
+      );
+      const scale = Math.min(1, FRAME_MAX_SIDE / Math.max(crop.width, crop.height));
+      this.canvas.width = Math.round(crop.width * scale);
+      this.canvas.height = Math.round(crop.height * scale);
+      this.canvas
+        .getContext('2d')!
+        .drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, this.canvas.width, this.canvas.height);
       const data = this.canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
       const { uri } = await Filesystem.writeFile({ path: 'scan-frame.jpg', data, directory: Directory.Cache });
       const { text } = await TextRecognition.processImage({ path: uri });
@@ -557,7 +636,10 @@ export class ScanPage {
       const read = this.match(text);
       this.pendingAlternatives = read.alternatives;
       this.consider(read.card);
-      if (!read.card) this.explainMiss(text, read.candidates);
+      if (!read.card) {
+        this.explainMiss(text, read.candidates);
+        this.lookForMissingSet(text);
+      }
     } catch {
       this.status.set('Could not read that frame, trying again…');
     } finally {
@@ -585,9 +667,84 @@ export class ScanPage {
     this.found.set(card);
   }
 
+  /**
+   * A number from any game, read twice in a row, whose set isn't downloaded: look the set up in the
+   * background and offer it, so nobody has to leave the scanner to fetch it.
+   */
+  private lookForMissingSet(text: string): void {
+    if (this.offer() || this.downloading()) return;
+    const installed = new Set(this.gameIds());
+    const reads = GAMES.map(game => ({ game, numbers: game.scanCandidates(text) }))
+      .sort((a, b) => Number(installed.has(b.game.id)) - Number(installed.has(a.game.id)))
+      .flatMap(({ game, numbers }) => numbers.map(number => ({ gameId: game.id, number })))
+      .filter(read => !this.byNumber.has(read.number))
+      .slice(0, MAX_SET_LOOKUPS);
+    const key = reads.map(read => `${read.gameId}:${read.number}`).join('|');
+    const confirmed = key && key === this.lastUnknown;
+    this.lastUnknown = key;
+    if (confirmed) void this.offerFirstKnownSet(reads);
+  }
+
+  private async offerFirstKnownSet(reads: { gameId: string; number: string }[]): Promise<void> {
+    for (const { gameId, number } of reads) {
+      const prefix = `${gameId}:${number.slice(0, number.indexOf('-'))}`;
+      if (this.declined.has(prefix)) continue;
+      let lookup = this.setLookups.get(prefix);
+      if (!lookup) {
+        lookup = this.catalog.setForScan(gameId, number).catch(() => undefined);
+        this.setLookups.set(prefix, lookup);
+      }
+      const set = await lookup;
+      if (!set) continue;
+      if (this.found() || this.offer() || this.downloading()) return;
+      const game = gameById(gameId)!;
+      const installed = this.catalog.installed().find(row => row.id === gameId);
+      this.offer.set({
+        key: prefix,
+        gameId,
+        gameName: game.name,
+        number,
+        set,
+        wholeGame: !game.listSets && (!installed || !installed.sets),
+      });
+      this.status.set(`${number} isn't downloaded yet`);
+      this.hint.set('');
+      this.beep('ready');
+      return;
+    }
+  }
+
+  protected dismissOffer(offer: SetOffer): void {
+    this.declined.add(offer.key);
+    this.offer.set(null);
+    this.lookingStatus();
+  }
+
+  protected async acceptOffer(offer: SetOffer): Promise<void> {
+    this.downloading.set(true);
+    this.status.set(`Downloading ${offer.wholeGame ? offer.gameName : offer.set.name}…`);
+    try {
+      const result = await this.catalog.addSet(offer.gameId, offer.set.code);
+      if (result.priced !== undefined) await this.prices.reload();
+      const game = gameById(offer.gameId);
+      // Worth the Rip prices are a separate, slower download; let them arrive while scanning carries on.
+      if (game?.priceGame && !game.pricesWithCatalog) void this.prices.update(offer.gameId).catch(() => undefined);
+      this.setLookups.clear();
+      this.offer.set(null);
+      this.lastUnknown = '';
+      this.lookingStatus();
+      await this.notify.show(`Added ${offer.set.name}: ${result.cards.toLocaleString()} cards. Scanning again…`, 2000);
+    } catch (error) {
+      console.error(`Downloading ${offer.set.code} failed`, error);
+      this.status.set('Download failed. Check your connection and try again.');
+    } finally {
+      this.downloading.set(false);
+    }
+  }
+
   /** Says what the camera did see, so a miss doesn't look like nothing is happening. */
   private explainMiss(text: string, candidates: string[]): void {
-    if (this.found() || this.resumeAt > Date.now()) return;
+    if (this.found() || this.offer() || this.downloading() || this.resumeAt > Date.now()) return;
     this.misses++;
     if (candidates.length) {
       this.status.set(`Read ${candidates[0]}, but it isn't in your downloaded cards`);

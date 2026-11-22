@@ -1,3 +1,4 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { Component, computed, inject } from '@angular/core';
 import {
   IonButton,
@@ -29,7 +30,7 @@ import { CardViewerComponent } from './card-viewer.component';
 
 @Component({
   selector: 'app-card-detail',
-  imports: [
+  imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent, IonList, IonItem, IonLabel, IonNote, IonIcon,
     MoneyPipe,
   ],
@@ -46,7 +47,7 @@ import { CardViewerComponent } from './card-viewer.component';
       @if (card; as card) {
         <div class="hero">
           <button class="art" (click)="view(card)" aria-label="View full card">
-            <img [src]="card.image" [alt]="card.name" />
+            <img [cardSrc]="card.image" [alt]="card.name" />
             <span class="zoom"><ion-icon name="expand-outline" /> Full card</span>
           </button>
           <div>

@@ -33,6 +33,8 @@ export interface CatalogCard {
   color: string;
   rarity: string;
   image: string;
+  /** A sharper scan for the full-card view, where the source has one. */
+  imageLarge?: string;
   sortKey: string;
   printings: Printing[];
   details?: CardDetails;
@@ -85,10 +87,17 @@ export interface GameDefinition {
   fetchCatalog(options?: FetchOptions): Promise<CatalogCard[] | CatalogDownload>;
   /** Present when the catalog is downloaded set by set, from sets the user picks. */
   listSets?(): Promise<GameSet[]>;
+  /** The set a scanned number comes from, when its printed code isn't the set's own code. */
+  scanSet?(number: string): Promise<GameSet | undefined>;
   /** The catalog download carries prices too, so there's no separate price step. */
   pricesWithCatalog?: boolean;
   /** The game's key on worththerip.com, where prices come from. */
   priceGame?: string;
+  /**
+   * Reads Worth the Rip numbers that aren't shaped like "BT1-084 SR" (Pokémon's are "083/088", with the
+   * set only in the file's name), given the installed cards to match them against.
+   */
+  priceNumberReader?(cards: CatalogCard[]): (raw: string, setName: string) => string | null;
   /** Fits a segment button; falls back to the full name. */
   shortName?: string;
   /** Possible card numbers in OCR text, most likely first; the scanner keeps the ones in the catalog. */

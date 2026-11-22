@@ -40,10 +40,15 @@ export function variantLabel(name: string): string | null {
   return match ? match[1] : null;
 }
 
-export function foldPrices(game: string, cards: RipCard[], updatedAt: number): PriceRow[] {
+export function foldPrices(
+  game: string,
+  cards: RipCard[],
+  updatedAt: number,
+  readNumber: (raw: string | undefined) => string | null = numberOf,
+): PriceRow[] {
   const rows = new Map<string, PriceRow>();
   for (const card of cards) {
-    const number = numberOf(card.number);
+    const number = readNumber(card.number);
     const market = card.marketPrice;
     if (!number || typeof market !== 'number') continue;
     const row = rows.get(number) ?? {

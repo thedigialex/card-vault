@@ -10,7 +10,7 @@ const EV_SNAPSHOT = 'https://worththerip.com/ev-snapshot.json';
 const SET_CARDS = (setKey: string) => `https://worththerip.com/cards/${setKey}.json`;
 
 interface EvSnapshot {
-  results: Record<string, { game?: string; singlesPriced?: number }>;
+  results: Record<string, { game?: string; name?: string; singlesPriced?: number }>;
 }
 
 /** Anything with a game and a card number: a catalog card, or a row that carries both. */
@@ -62,26 +62,29 @@ export class PriceService {
    * key and open CORS, so the app can read them without a server of its own.
    */
   async update(gameId: string): Promise<number> {
-    const priceGame = gameById(gameId)?.priceGame;
-    if (!priceGame) throw new Error(`No price source for ${gameId}`);
+    const game = gameById(gameId);
+    const priceGame = game?.priceGame;
+    if (!game || !priceGame) throw new Error(`No price source for ${gameId}`);
     this.updating.set(gameId);
     this.progress.set(0);
     try {
       const snapshot = (await (await fetch(EV_SNAPSHOT)).json()) as EvSnapshot;
-      const setKeys = Object.entries(snapshot.results ?? {})
-        .filter(([, set]) => set.game === priceGame && (set.singlesPriced ?? 0) > 0)
-        .map(([key]) => key);
+      const sets = Object.entries(snapshot.results ?? {}).filter(
+        ([, set]) => set.game === priceGame && (set.singlesPriced ?? 0) > 0,
+      );
+      const reader = game.priceNumberReader?.(await this.catalog.cardsFor(gameId));
 
       const updatedAt = Date.now();
       const rows = new Map<string, PriceRow>();
       let done = 0;
-      for (const setKey of setKeys) {
+      for (const [setKey, set] of sets) {
         try {
           const response = await fetch(SET_CARDS(setKey));
           if (response.ok) {
             const body = (await response.json()) as { cards?: RipCard[] };
+            const readNumber = reader ? (raw: string | undefined) => reader(raw ?? '', set.name ?? '') : undefined;
             // A number can appear in several sets (reprints); the first set that lists it wins.
-            for (const row of foldPrices(gameId, body.cards ?? [], updatedAt)) {
+            for (const row of foldPrices(gameId, body.cards ?? [], updatedAt, readNumber)) {
               if (!rows.has(row.key)) rows.set(row.key, row);
             }
           }
@@ -89,18 +92,21 @@ export class PriceService {
           // One unreachable set shouldn't lose the rest.
         }
         done++;
-        this.progress.set(done / setKeys.length);
+        this.progress.set(done / sets.length);
       }
 
       const priced = [...rows.values()];
+      let total = priced.length;
       await this.db.transaction('rw', this.db.prices, this.db.games, async () => {
-        await this.db.prices.where('game').equals(gameId).delete();
+        // Prices that came with the card list stay for the cards Worth the Rip doesn't cover.
+        if (!game.pricesWithCatalog) await this.db.prices.where('game').equals(gameId).delete();
         await this.db.prices.bulkPut(priced);
-        await this.db.games.update(gameId, { pricesUpdatedAt: updatedAt, pricedCards: priced.length });
+        total = await this.db.prices.where('game').equals(gameId).count();
+        await this.db.games.update(gameId, { pricesUpdatedAt: updatedAt, pricedCards: total });
       });
       await this.reload();
       await this.catalog.refreshInstalled();
-      return priced.length;
+      return total;
     } finally {
       this.updating.set(null);
       this.progress.set(0);

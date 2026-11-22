@@ -32,6 +32,8 @@ export class CatalogService {
   private readonly cache = new Map<string, CatalogCard[]>();
   private readonly index = new Map<string, { card: CatalogCard; code: string; name: string }[]>();
   private readonly prefetched = new Map<string, { at: number; download: CatalogDownload }>();
+  /** Set lists the scanner has looked numbers up in, kept for the session. */
+  private readonly scanSetLists = new Map<string, Promise<GameSet[]>>();
 
   readonly installed = signal<InstalledGame[]>([]);
   /** False until the first read of the database, so screens don't flash "no games" on startup. */
@@ -124,6 +126,32 @@ export class CatalogService {
       main: true,
       icon: group.items[0].setIcon,
     }));
+  }
+
+  /** Which set a scanned number belongs to, so the scanner can offer to download it. */
+  async setForScan(gameId: string, number: string): Promise<GameSet | undefined> {
+    const game = gameById(gameId);
+    if (!game) return undefined;
+    if (game.scanSet) return game.scanSet(number);
+    // A game installed whole already has every set, so an unknown number there is a misread.
+    if (!game.listSets && this.installed().some(row => row.id === gameId && !row.sets)) return undefined;
+    let sets = this.scanSetLists.get(gameId);
+    if (!sets) {
+      sets = this.setsFor(gameId);
+      this.scanSetLists.set(gameId, sets);
+      sets.catch(() => this.scanSetLists.delete(gameId));
+    }
+    const prefix = number.slice(0, number.indexOf('-')).toUpperCase();
+    return (await sets).find(set => set.code === prefix);
+  }
+
+  /** Adds one set to what's downloaded; a game that comes whole and isn't installed yet comes in full. */
+  async addSet(gameId: string, setCode: string, withPrices = true): Promise<InstallResult> {
+    const game = gameById(gameId);
+    const installed = this.installed().find(row => row.id === gameId);
+    const sets: string[] | 'all' =
+      !game?.listSets && (!installed || !installed.sets) ? 'all' : [...new Set([...(installed?.sets ?? []), setCode])];
+    return this.install(gameId, { sets, withPrices });
   }
 
   private async download(game: GameDefinition, sets?: string[]): Promise<CatalogDownload> {

@@ -1,3 +1,4 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
@@ -32,7 +33,7 @@ const UNBOXED = -1;
 
 @Component({
   selector: 'app-box',
-  imports: [
+  imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, Box3dComponent,
     CdkDropListGroup, CdkDropList, CdkDrag, ListMarksComponent, MoneyPipe,
   ],
@@ -114,7 +115,7 @@ const UNBOXED = -1;
                     [cdkDragStartDelay]="dragDelay"
                     (click)="inspect(slot.entry, row.entries)"
                   >
-                    <img [src]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
+                    <img [cardSrc]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
                     <span class="tile-flag">#{{ i + 1 }}</span>
                     <app-list-marks [ownedId]="slot.entry.owned.id" />
                     <span class="tile-caption">{{ slot.entry.card.number }}</span>
@@ -147,7 +148,7 @@ const UNBOXED = -1;
                   [cdkDragStartDelay]="dragDelay"
                   (click)="inspect(slot.entry, pile())"
                 >
-                  <img [src]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
+                  <img [cardSrc]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
                   <app-list-marks [ownedId]="slot.entry.owned.id" />
                   <span class="tile-caption">{{ slot.entry.card.number }}</span>
                 </div>

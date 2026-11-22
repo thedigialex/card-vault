@@ -6,6 +6,12 @@ import { CardList, ListEntry } from '../lists/list-models';
 import { PriceRow } from '../prices/prices';
 import { CatalogCard, InstalledGame, OwnedCard } from './models';
 
+export interface StoredImage {
+  url: string;
+  blob: Blob;
+  savedAt: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class VaultDb extends Dexie {
   games!: Table<InstalledGame, string>;
@@ -16,6 +22,7 @@ export class VaultDb extends Dexie {
   prices!: Table<PriceRow, string>;
   lists!: Table<CardList, number>;
   listEntries!: Table<ListEntry, number>;
+  images!: Table<StoredImage, string>;
 
   constructor() {
     super('card-vault');
@@ -59,5 +66,8 @@ export class VaultDb extends Dexie {
             placement.position ??= 0;
           });
       });
+    this.version(6).stores({
+      images: 'url',
+    });
   }
 }

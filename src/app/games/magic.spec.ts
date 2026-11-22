@@ -82,6 +82,11 @@ describe('magicScanCandidates', () => {
     expect(magicScanCandidates('0123 R\nNEO • EN Daniel Ljunggren')).toEqual(['NEO-123']);
   });
 
+  it("doesn't pair one card's set code with a neighbouring card's number", () => {
+    const binder = '0316 R\nThe Lost Caverns\n249/279 R Story Spotlight 4/5\nXLN • EN YEONG-HAO HAN\nLCC • EN';
+    expect(magicScanCandidates(binder)).toEqual(['XLN-249', 'XLN-4']);
+  });
+
   it('reads the older "number/total" line and fixes OCR letters', () => {
     expect(magicScanCandidates('O45/274 U\nM20 * EN')).toEqual(['M20-45']);
   });

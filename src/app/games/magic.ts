@@ -213,26 +213,38 @@ async function cardsOfSet(code: string): Promise<ScryfallCard[]> {
   return cards;
 }
 
-/** Card numbers sit bottom-left: "0123 R" or "123/302 R" above "NEO • EN". */
-export function magicScanCandidates(text: string): string[] {
-  const upper = text.toUpperCase();
-  const sets = new Set<string>();
-  for (const [, code] of upper.matchAll(/(?:^|[^A-Z0-9])([A-Z0-9]{3,5})\s*[•·*.+-]?\s*(?:EN|ES|FR|DE|IT|PT|JA|JP|KO|RU|ZHS|ZHT|PH)(?![A-Z])/g)) {
-    if (/[A-Z]/.test(code)) sets.add(code);
-  }
-  const numbers = new Set<string>();
-  const digitsOf = (raw: string) => raw.replace(/[OQD]/g, '0').replace(/[IL|]/g, '1');
-  for (const [, raw] of upper.matchAll(/(?:^|[^A-Z0-9])([0-9OQDIL|]{1,4})\s*\/\s*[0-9OIL]{1,4}/g)) numbers.add(digitsOf(raw));
-  for (const [, raw] of upper.matchAll(/(?:^|[^A-Z0-9/])([0-9OQDIL|]{3,4})\s+[CURMSLTP](?![A-Z])/g)) numbers.add(digitsOf(raw));
+const SET_LINE = /(?:^|[^A-Z0-9])([A-Z0-9]{3,5})\s*[•·*.+-]?\s*(?:EN|ES|FR|DE|IT|PT|JA|JP|KO|RU|ZHS|ZHT|PH)(?![A-Z])/g;
+const NUMBER_OF_TOTAL = /(?:^|[^A-Z0-9])([0-9OQDIL|]{1,4})\s*\/\s*[0-9OIL]{1,4}/g;
+const NUMBER_RARITY = /(?:^|[^A-Z0-9/])([0-9OQDIL|]{3,4})\s+[CURMSLTP](?![A-Z])/g;
 
-  const found: string[] = [];
-  for (const code of sets) {
-    for (const raw of numbers) {
-      if (!/^\d+$/.test(raw)) continue;
-      found.push(magicNumber(code, String(Number(raw))));
+const digitsOf = (raw: string) => raw.replace(/[OQD]/g, '0').replace(/[IL|]/g, '1');
+
+function setsOn(line: string): string[] {
+  return [...line.matchAll(SET_LINE)].map(match => match[1]).filter(code => /[A-Z]/.test(code));
+}
+
+function numbersOn(line: string): string[] {
+  return [...line.matchAll(NUMBER_OF_TOTAL), ...line.matchAll(NUMBER_RARITY)]
+    .map(match => digitsOf(match[1]))
+    .filter(raw => /^\d+$/.test(raw))
+    .map(raw => String(Number(raw)));
+}
+
+/**
+ * Card numbers sit bottom-left: "0123 R" or "123/302 R" just above "NEO • EN". A code is only paired
+ * with a number on its own line or the line above, so a neighbouring card's text can't mix in.
+ */
+export function magicScanCandidates(text: string): string[] {
+  const lines = text.toUpperCase().split(/\r?\n/);
+  const found = new Set<string>();
+  lines.forEach((line, i) => {
+    for (const code of setsOn(line)) {
+      for (const number of [...numbersOn(line), ...(i > 0 ? numbersOn(lines[i - 1]) : [])]) {
+        found.add(magicNumber(code, number));
+      }
     }
-  }
-  return found;
+  });
+  return [...found];
 }
 
 export const magic: GameDefinition = {

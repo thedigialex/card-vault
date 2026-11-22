@@ -1,3 +1,4 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { Component, computed, inject, input } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
@@ -22,7 +23,7 @@ import { ListCard, ListService } from './list.service';
 
 @Component({
   selector: 'app-list',
-  imports: [
+  imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, RouterLink,
     MoneyPipe,
   ],
@@ -63,7 +64,7 @@ import { ListCard, ListService } from './list.service';
         @if (cards().length) {
           @for (row of cards(); track row.entry.id) {
             <button class="row" (click)="open(row)">
-              <img class="card-thumb" [src]="row.card.card.image" [alt]="row.card.card.name" loading="lazy" />
+              <img class="card-thumb" [cardSrc]="row.card.card.image" [alt]="row.card.card.name" loading="lazy" />
               <span class="meta">
                 <strong>{{ row.card.card.name }}</strong>
                 <span>{{ row.card.card.number }} · {{ row.card.card.rarity }}</span>

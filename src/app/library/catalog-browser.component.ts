@@ -1,8 +1,9 @@
+import { CardSrcDirective } from '../shared/card-src.directive';
 import { DecimalPipe } from '@angular/common';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { IonIcon } from '@ionic/angular';
 import { addIcons } from 'ionicons';
-import { add, chevronDown, trophy } from 'ionicons/icons';
+import { chevronDown, trophy } from 'ionicons/icons';
 
 import { AddCardService } from '../data/add-card.service';
 import { CatalogService } from '../data/catalog.service';
@@ -39,40 +40,48 @@ function titleOf(setCode: string, setName: string): string {
 
 @Component({
   selector: 'app-catalog-browser',
-  imports: [IonIcon, ListMarksComponent, DecimalPipe, MoneyPipe],
+  imports: [CardSrcDirective, IonIcon, ListMarksComponent, DecimalPipe, MoneyPipe],
   template: `
     @if (cards().length) {
-      <div class="hud">
-        <div class="hud-stat accent">
-          <span>Collected</span>
-          <strong>{{ totals().owned | number }}<small>/{{ totals().cards | number }}</small></strong>
-        </div>
-        <div class="hud-stat gold">
-          <span>Sets done</span>
-          <strong>{{ totals().complete }}<small>/{{ totals().sets }}</small></strong>
-        </div>
-        <div class="hud-stat">
-          <span>Value</span>
-          <strong>{{ totals().value | money }}</strong>
-        </div>
+      <div class="summary">
+        <span><b class="accent">{{ totals().owned | number }}</b>/{{ totals().cards | number }} cards</span>
+        <span><b class="gold">{{ totals().complete }}</b>/{{ totals().sets }} sets done</span>
+        @if (totals().value) {
+          <span class="value">{{ totals().value | money }}</span>
+        }
       </div>
-      @if (expanded().size) {
-        <button class="collapse-all" (click)="collapseAll()">Collapse all</button>
-      }
+      <div class="controls">
+        <div class="filters" role="radiogroup" aria-label="Show">
+          @for (option of filters; track option.value) {
+            <button
+              role="radio"
+              [class.on]="filter() === option.value"
+              [attr.aria-checked]="filter() === option.value"
+              (click)="filter.set(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          }
+        </div>
+        @if (expanded().size) {
+          <button class="collapse-all" (click)="collapseAll()">Collapse all</button>
+        }
+      </div>
     }
 
     @for (set of visibleSets(); track set.setCode) {
       @let open = expanded().has(set.setCode);
+      @let complete = set.owned === set.cards.length;
       <button
-        class="set-panel"
+        class="set-row"
         [class.open]="open"
-        [class.complete]="set.owned === set.cards.length"
+        [class.complete]="complete"
         [attr.aria-expanded]="open"
         (click)="toggle(set.setCode)"
       >
         <span class="cover" [class.unowned]="!set.owned">
           @for (card of set.cover; track card.id; let i = $index) {
-            <img [src]="card.image" alt="" loading="lazy" [style.--i]="i - (set.cover.length - 1) / 2" />
+            <img [cardSrc]="card.image" alt="" loading="lazy" [style.--i]="i - (set.cover.length - 1) / 2" />
           }
         </span>
         <span class="info">
@@ -80,22 +89,20 @@ function titleOf(setCode: string, setName: string): string {
             @if (set.icon) {
               <img class="symbol" [src]="set.icon" alt="" loading="lazy" />
             }
-            {{ set.title }}
+            <span class="name">{{ set.title }}</span>
           </span>
           <span class="meta">
-            {{ set.setCode }} · {{ set.cards.length | number }} cards
-            @if (set.value) {
-              · <b>{{ set.value | money }}</b>
-            }
-          </span>
-          <span class="progress">
-            <span class="fill-bar"><span [style.width.%]="set.percent"></span></span>
-            @if (set.owned === set.cards.length) {
+            <span class="code">{{ set.setCode }}</span>
+            @if (complete) {
               <span class="done"><ion-icon name="trophy" /> Complete</span>
             } @else {
-              <span class="count">{{ set.owned }}/{{ set.cards.length }}</span>
+              <span>{{ set.owned }}/{{ set.cards.length }}</span>
+            }
+            @if (set.value) {
+              <b>{{ set.value | money }}</b>
             }
           </span>
+          <span class="fill-bar"><span [style.width.%]="set.percent"></span></span>
         </span>
         <ion-icon class="chevron" name="chevron-down" />
       </button>
@@ -105,34 +112,81 @@ function titleOf(setCode: string, setName: string): string {
           @for (card of set.visible; track card.id) {
             @let count = counts().get(card.id) ?? 0;
             <button class="card-tile" [class]="rarity(card)" [class.missing]="!count" (click)="adder.add(card, true, set.visible)">
-              <img [src]="card.image" [alt]="card.name" loading="lazy" />
-              @if (count) {
+              <img [cardSrc]="card.image" [alt]="card.name" loading="lazy" />
+              @if (count > 1) {
                 <span class="tile-badge">{{ count }}</span>
-              } @else {
-                <span class="tile-add"><ion-icon name="add" /></span>
               }
               <app-list-marks [cardId]="card.id" />
               <span class="tile-caption">{{ card.number }}</span>
-              <span class="tile-caption name">{{ card.name }}</span>
             </button>
           }
         </div>
       }
     } @empty {
-      <p class="empty-state">No sets match this filter.</p>
+      @if (cards().length) {
+        <p class="empty-state">{{ filter() === 'owned' ? 'No cards collected yet.' : 'Nothing missing. Every set is complete!' }}</p>
+      }
     }
   `,
   styles: `
-    .hud strong small {
-      font-size: 12px;
-      font-weight: 600;
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px 14px;
+      padding: 12px 16px 0;
+      font-size: 13px;
       color: var(--ion-color-medium);
-      -webkit-text-fill-color: var(--ion-color-medium);
+
+      b {
+        font-size: 16px;
+        font-weight: 800;
+      }
+      .accent {
+        color: #8ea4ff;
+      }
+      .gold {
+        color: #f7b733;
+      }
+      .value {
+        margin-left: auto;
+        font-weight: 700;
+        color: var(--ion-text-color);
+      }
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px 2px;
+    }
+
+    .filters {
+      display: inline-flex;
+      padding: 3px;
+      border-radius: 999px;
+      background: var(--vault-panel);
+      border: 1px solid var(--vault-panel-edge);
+
+      button {
+        padding: 5px 12px;
+        border: none;
+        border-radius: 999px;
+        background: none;
+        color: var(--ion-color-medium);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      button.on {
+        background: rgb(255 255 255 / 0.12);
+        color: var(--ion-text-color);
+      }
     }
 
     .collapse-all {
-      display: block;
-      margin: 4px 16px 0 auto;
       padding: 4px 0;
       border: none;
       background: none;
@@ -142,15 +196,15 @@ function titleOf(setCode: string, setName: string): string {
       font-weight: 600;
     }
 
-    .set-panel {
+    .set-row {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       width: calc(100% - 24px);
-      margin: 10px 12px 0;
-      padding: 12px 12px 12px 10px;
+      margin: 8px 12px 0;
+      padding: 8px 12px 8px 8px;
       border: 1px solid var(--vault-panel-edge);
-      border-radius: var(--vault-radius);
+      border-radius: 12px;
       background: var(--vault-panel);
       color: inherit;
       font: inherit;
@@ -179,21 +233,21 @@ function titleOf(setCode: string, setName: string): string {
     .cover {
       position: relative;
       flex-shrink: 0;
-      width: 68px;
-      height: 64px;
+      width: 48px;
+      height: 46px;
 
       img {
         position: absolute;
         left: 50%;
         bottom: 0;
-        width: 40px;
+        width: 28px;
         aspect-ratio: var(--card-ratio);
         object-fit: cover;
-        border-radius: 4px;
+        border-radius: 3px;
         background: var(--ion-background-color-step-150, #22262f);
-        box-shadow: 0 2px 8px rgb(0 0 0 / 0.5);
+        box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
         transform-origin: 50% 110%;
-        transform: translateX(-50%) rotate(calc(var(--i) * 13deg));
+        transform: translateX(-50%) rotate(calc(var(--i) * 12deg));
       }
       &.unowned img {
         opacity: 0.35;
@@ -206,71 +260,66 @@ function titleOf(setCode: string, setName: string): string {
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 4px;
     }
 
     .title {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 15px;
+      min-width: 0;
+      font-size: 14px;
       font-weight: 700;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+
+      .name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
 
     .symbol {
       flex-shrink: 0;
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       object-fit: contain;
       filter: invert(1);
       opacity: 0.85;
     }
 
     .meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       font-size: 12px;
       color: var(--ion-color-medium);
-      overflow: hidden;
-      text-overflow: ellipsis;
       white-space: nowrap;
 
+      .code {
+        font-weight: 600;
+      }
       b {
+        margin-left: auto;
         font-weight: 700;
         color: #f7b733;
       }
     }
 
-    .progress {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 3px;
-
-      .fill-bar {
-        flex: 1;
-      }
-    }
-
-    .count,
-    .done {
-      font-size: 11px;
-      font-weight: 700;
-      white-space: nowrap;
-      color: var(--ion-color-medium);
+    .fill-bar {
+      height: 3px;
     }
 
     .done {
       display: inline-flex;
       align-items: center;
       gap: 3px;
+      font-weight: 700;
       color: #f7b733;
     }
 
     .chevron {
       flex-shrink: 0;
-      font-size: 18px;
+      font-size: 16px;
       color: var(--ion-color-medium);
       transition: transform 0.2s ease;
     }
@@ -278,18 +327,8 @@ function titleOf(setCode: string, setName: string): string {
       transform: rotate(180deg);
     }
 
-    .tile-add {
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      display: grid;
-      place-items: center;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      border: 1px dashed rgb(255 255 255 / 0.45);
-      color: rgb(255 255 255 / 0.7);
-      font-size: 13px;
+    .card-grid {
+      gap: 8px;
     }
   `,
 })
@@ -300,7 +339,13 @@ export class CatalogBrowserComponent {
   protected readonly adder = inject(AddCardService);
 
   readonly gameId = input.required<string>();
-  readonly filter = input<OwnedFilter>('all');
+
+  protected readonly filter = signal<OwnedFilter>('all');
+  protected readonly filters: { value: OwnedFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'owned', label: 'Owned' },
+    { value: 'missing', label: 'Missing' },
+  ];
 
   protected readonly cards = signal<CatalogCard[]>([]);
   protected readonly expanded = signal(new Set<string>());
@@ -349,7 +394,12 @@ export class CatalogBrowserComponent {
   });
 
   constructor() {
-    addIcons({ add, chevronDown, trophy });
+    addIcons({ chevronDown, trophy });
+    // Another game's open sets mean nothing here.
+    effect(() => {
+      this.gameId();
+      this.expanded.set(new Set());
+    });
     effect(() => {
       const gameId = this.gameId();
       this.catalog.installed();

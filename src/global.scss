@@ -238,7 +238,13 @@ ion-tab-button ion-icon {
 
 /* Rarer cards get a warmer edge, so a shelf of cards reads at a glance. */
 .card-tile.r-sr img,
-.card-tile.r-rr img {
+.card-tile.r-rr img,
+.card-tile.r-rh img,
+.card-tile.r-ir img,
+.card-tile.r-ace img,
+.card-tile.r-ar img,
+.card-tile.r-rad img,
+.card-tile.r-shr img {
   box-shadow: 0 0 0 1.5px rgb(247 183 51 / 0.85), 0 2px 12px rgb(247 183 51 / 0.3);
 }
 
@@ -251,7 +257,21 @@ ion-tab-button ion-icon {
 }
 
 .card-tile.r-sec img,
-.card-tile.r-ur img {
+.card-tile.r-ur img,
+.card-tile.r-sir img,
+.card-tile.r-hr img,
+.card-tile.r-mhr img,
+.card-tile.r-sur img,
+.card-tile.r-utr img,
+.card-tile.r-scr img,
+.card-tile.r-qcsr img,
+.card-tile.r-cr img,
+.card-tile.r-ps img,
+.card-tile.r-pscr img,
+.card-tile.r-str img,
+.card-tile.r-gr img,
+.card-tile.r-gur img,
+.card-tile.r-pg img {
   box-shadow: 0 0 0 1.5px rgb(168 85 247 / 0.9), 0 2px 14px rgb(168 85 247 / 0.38);
 }
 
