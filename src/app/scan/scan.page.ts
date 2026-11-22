@@ -22,9 +22,10 @@ import {
   IonSpinner,
   IonTitle,
   IonToolbar,
+  ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
-import { volumeHighOutline, volumeMuteOutline } from 'ionicons/icons';
+import { optionsOutline, volumeHighOutline, volumeMuteOutline } from 'ionicons/icons';
 
 import { BoxService } from '../boxes/box.service';
 import { CatalogService } from '../data/catalog.service';
@@ -37,6 +38,7 @@ import { RepeatGuard, acceptable, afterAdd, afterFrame, emptyGuard } from './aut
 import { guideInVideo } from './crop';
 import { GameVote } from './game-detect';
 import { NameIndex } from './name-match';
+import { ScanSettingsComponent } from './scan-settings.component';
 import { ScanSoundService } from './scan-sound';
 
 const FRAME_INTERVAL_MS = 600;
@@ -76,6 +78,9 @@ interface AddedCard {
           <ion-button [attr.aria-label]="muted() ? 'Unmute' : 'Mute'" (click)="muted.set(!muted())">
             <ion-icon slot="icon-only" [name]="muted() ? 'volume-mute-outline' : 'volume-high-outline'" />
           </ion-button>
+          <ion-button class="settings" [class.on]="customised()" aria-label="Scanner settings" (click)="openSettings()">
+            <ion-icon slot="icon-only" name="options-outline" />
+          </ion-button>
         </ion-buttons>
       </ion-toolbar>
       <ion-toolbar>
@@ -83,26 +88,6 @@ interface AddedCard {
           <ion-segment-button value="manual">One at a time</ion-segment-button>
           <ion-segment-button value="auto">Auto</ion-segment-button>
         </ion-segment>
-      </ion-toolbar>
-      <ion-toolbar>
-        <ion-item lines="none">
-          <ion-select label="Game" labelPlacement="fixed" interface="action-sheet" [value]="gameChoice()" (ionChange)="chooseGame($event.detail.value)">
-            <ion-select-option value="auto">Auto-detect</ion-select-option>
-            @for (game of games; track game.id) {
-              <ion-select-option [value]="game.id">{{ game.name }}</ion-select-option>
-            }
-          </ion-select>
-        </ion-item>
-      </ion-toolbar>
-      <ion-toolbar>
-        <ion-item lines="none">
-          <ion-select label="File into" labelPlacement="fixed" interface="action-sheet" [value]="targetBox()" (ionChange)="targetBox.set($event.detail.value)">
-            <ion-select-option [value]="0">Unboxed pile</ion-select-option>
-            @for (box of handSorted(); track box.id) {
-              <ion-select-option [value]="box.id">{{ box.name }}</ion-select-option>
-            }
-          </ion-select>
-        </ion-item>
       </ion-toolbar>
       @if (mode() === 'auto') {
         <ion-toolbar>
@@ -510,6 +495,12 @@ interface AddedCard {
     .manual {
       padding-bottom: var(--ion-safe-area-bottom, 0px);
     }
+    .settings.on {
+      --color: var(--ion-color-primary);
+      ion-icon {
+        filter: drop-shadow(0 0 6px rgb(91 124 250 / 0.7));
+      }
+    }
   `,
 })
 export class ScanPage {
@@ -519,6 +510,7 @@ export class ScanPage {
   private readonly prices = inject(PriceService);
   private readonly sounds = inject(ScanSoundService);
   private readonly boxes = inject(BoxService);
+  private readonly modals = inject(ModalController);
   private readonly video = viewChild.required<ElementRef<HTMLVideoElement>>('video');
   private readonly guideBox = viewChild.required<ElementRef<HTMLElement>>('guide');
 
@@ -559,6 +551,8 @@ export class ScanPage {
   protected readonly scanning = computed(() => this.ready() && this.native && !this.found() && this.cooldown() === 0);
   protected readonly targetBox = signal(0);
   protected readonly handSorted = computed(() => this.boxes.boxes().filter(box => !box.autoSort));
+  /** Marks the settings button when the scanner isn't on its defaults. */
+  protected readonly customised = computed(() => this.gameChoice() !== 'auto' || this.targetBox() !== 0);
   private readonly entered = signal(false);
 
   private byNumber = new Map<string, CatalogCard>();
@@ -582,7 +576,7 @@ export class ScanPage {
   private readonly canvas = document.createElement('canvas');
 
   constructor() {
-    addIcons({ volumeHighOutline, volumeMuteOutline });
+    addIcons({ optionsOutline, volumeHighOutline, volumeMuteOutline });
     // The installed games arrive from the database a moment after the page opens.
     effect(() => {
       // With no games yet, scanning still works: the first card read offers its game for download.
@@ -715,6 +709,23 @@ export class ScanPage {
       return { card: named[0], candidates, alternatives: named };
     }
     return { card: null, candidates, alternatives: [] };
+  }
+
+  protected async openSettings(): Promise<void> {
+    const modal = await this.modals.create({
+      component: ScanSettingsComponent,
+      componentProps: {
+        games: this.games,
+        boxes: this.handSorted(),
+        gameChoice: this.gameChoice(),
+        boxChoice: this.targetBox(),
+        onGame: (id: string) => this.chooseGame(id),
+        onBox: (id: number) => this.targetBox.set(id),
+      },
+      breakpoints: [0, 0.6, 1],
+      initialBreakpoint: 0.6,
+    });
+    await modal.present();
   }
 
   protected chooseGame(choice: string): void {
