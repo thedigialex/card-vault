@@ -50,7 +50,6 @@ export class AddCardService {
         { text: 'View card', data: VIEW },
         { text: card.printings.length ? 'Add regular' : 'Add', data: REGULAR_PRINTING },
         ...card.printings.map(p => ({ text: p.note ? `${p.label} – ${p.note}` : p.label, data: p.id })),
-        { text: 'Cancel', role: 'cancel', data: null },
       ],
     });
     await sheet.present();

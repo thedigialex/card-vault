@@ -36,7 +36,7 @@ import { BoxService } from './box.service';
       @if (entries().length) {
         <div class="section-head">
           <h2>{{ entries().length }} {{ entries().length === 1 ? 'card' : 'cards' }}</h2>
-          <span>Tap one to file it</span>
+          <span>{{ canFile() ? 'Tap one to file it' : 'Tap one to view it' }}</span>
         </div>
         <div class="card-grid">
           @for (slot of entries(); track slot.entry.owned.id) {
@@ -65,6 +65,7 @@ export class UnboxedPage {
   protected readonly entries = computed(() =>
     this.boxes.unboxed().map(entry => ({ entry, rarity: rarityClass(entry.card) })),
   );
+  protected readonly canFile = computed(() => this.boxes.boxes().some(box => !box.autoSort));
 
   constructor() {
     addIcons({ layersOutline });
@@ -72,21 +73,20 @@ export class UnboxedPage {
 
   protected async file(entry: LibraryEntry): Promise<void> {
     const hand = this.boxes.boxes().filter(box => !box.autoSort);
+    const view = () => this.cards.openDetail(entry, this.entries().map(row => row.entry.card));
+    if (!hand.length) return view();
+
     const sheet = await this.sheets.create({
       header: `${entry.card.name} · ${entry.card.number}`,
       buttons: [
         { text: 'View card', data: { action: 'view' } },
         ...hand.map(box => ({ text: `File into ${box.name}`, data: { action: 'file', boxId: box.id } })),
-        { text: 'Cancel', role: 'cancel', data: { action: 'cancel' } },
       ],
     });
     await sheet.present();
     const { data } = await sheet.onDidDismiss<{ action: string; boxId?: number }>();
 
-    if (data?.action === 'view') {
-      await this.cards.openDetail(entry, this.entries().map(row => row.entry.card));
-      return;
-    }
+    if (data?.action === 'view') return view();
     if (data?.action !== 'file' || !data.boxId) return;
 
     const filed = await this.boxes.fileInto(entry.owned.id!, data.boxId);

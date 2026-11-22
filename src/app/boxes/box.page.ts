@@ -3,19 +3,20 @@ import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cd
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
-  AlertController,
   IonBackButton,
   IonButton,
   IonButtons,
   IonContent,
   IonHeader,
   IonIcon,
+  IonSegment,
+  IonSegmentButton,
   IonTitle,
   IonToolbar,
   ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
-import { chevronDown, chevronForward, createOutline, trashOutline } from 'ionicons/icons';
+import { chevronDown, chevronForward, createOutline } from 'ionicons/icons';
 
 import { AddCardService } from '../data/add-card.service';
 import { NotifyService } from '../shared/notify.service';
@@ -34,7 +35,8 @@ const UNBOXED = -1;
 @Component({
   selector: 'app-box',
   imports: [CardSrcDirective,
-    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, Box3dComponent,
+    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, IonSegment,
+    IonSegmentButton, Box3dComponent,
     CdkDropListGroup, CdkDropList, CdkDrag, ListMarksComponent, MoneyPipe,
   ],
   template: `
@@ -47,9 +49,6 @@ const UNBOXED = -1;
         <ion-buttons slot="end">
           <ion-button (click)="edit()" aria-label="Edit box">
             <ion-icon slot="icon-only" name="create-outline" />
-          </ion-button>
-          <ion-button (click)="remove()" aria-label="Delete box">
-            <ion-icon slot="icon-only" name="trash-outline" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -66,36 +65,42 @@ const UNBOXED = -1;
             [interactive]="true"
             [scale]="0.7"
           />
-          <div class="meta">
-            <h2>{{ stats().model }}</h2>
-            <p>{{ box.rows }} {{ rowName(box.rows !== 1) }} × {{ box.rowCapacity }} cards</p>
-            <div class="fill-bar"><span [style.width.%]="(stats().used / stats().capacity) * 100"></span></div>
-            <p>{{ stats().used }} of {{ stats().capacity }} slots</p>
-            @if (stats().value > 0) {
-              <p class="value">Worth {{ stats().value | money }}</p>
-            }
-            <span class="pill">{{ box.autoSort ? 'Sorted automatically' : 'Hand-sorted' }}</span>
+          <p>{{ stats().model }} · {{ box.rows }} {{ rowName(box.rows !== 1) }} × {{ box.rowCapacity }}</p>
+        </div>
+
+        <div class="hud">
+          <div class="hud-stat accent">
+            <span>Filled</span>
+            <strong>{{ stats().used }}<small>/{{ stats().capacity }}</small></strong>
+          </div>
+          <div class="hud-stat gold">
+            <span>Value</span>
+            <strong>{{ stats().value > 0 ? (stats().value | money) : '—' }}</strong>
           </div>
         </div>
 
         <div class="mode">
-          @if (box.autoSort) {
-            <p>Cards are filed in set order.</p>
-            <ion-button size="small" fill="outline" (click)="setAutoSort(false)">Arrange by hand</ion-button>
-          } @else {
-            <p>Hold a card for a moment, then drag it to another {{ rowName(false) }} or to the pile.</p>
-            <ion-button size="small" fill="clear" (click)="setAutoSort(true)">Sort automatically</ion-button>
-          }
+          <ion-segment [value]="box.autoSort ? 'auto' : 'hand'" (ionChange)="setAutoSort($event.detail.value === 'auto')">
+            <ion-segment-button value="auto">Auto sort</ion-segment-button>
+            <ion-segment-button value="hand">By hand</ion-segment-button>
+          </ion-segment>
+          <p>
+            {{ box.autoSort ? 'Cards are filed in set order.' : 'Hold a card, then drag it to another ' + rowName(false) + ' or the pile.' }}
+          </p>
         </div>
 
         <div cdkDropListGroup>
           @for (row of rows(); track row.row) {
-            <button class="section-head toggle" (click)="toggle(row.row)">
-              <h2>
-                <ion-icon [name]="open().has(row.row) ? 'chevron-down' : 'chevron-forward'" />
-                {{ stats().rowTitle }} {{ row.row + 1 }}
-              </h2>
-              <span>{{ row.range || 'Empty' }} · {{ row.entries.length }}/{{ box.rowCapacity }}</span>
+            <button class="row-head" [class.open]="open().has(row.row)" (click)="toggle(row.row)">
+              <ion-icon [name]="open().has(row.row) ? 'chevron-down' : 'chevron-forward'" />
+              <div class="row-title">
+                <h2>{{ stats().rowTitle }} {{ row.row + 1 }}</h2>
+                <p>{{ row.range || 'Empty' }}</p>
+              </div>
+              <div class="row-fill">
+                <span>{{ row.entries.length }}/{{ box.rowCapacity }}</span>
+                <div class="fill-bar"><span [style.width.%]="(row.entries.length / box.rowCapacity) * 100"></span></div>
+              </div>
             </button>
             @if (open().has(row.row)) {
               <div
@@ -116,9 +121,8 @@ const UNBOXED = -1;
                     (click)="inspect(slot.entry, row.entries)"
                   >
                     <img [cardSrc]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
-                    <span class="tile-flag">#{{ i + 1 }}</span>
                     <app-list-marks [ownedId]="slot.entry.owned.id" />
-                    <span class="tile-caption">{{ slot.entry.card.number }}</span>
+                    <span class="tile-caption"><b>{{ i + 1 }}</b> {{ slot.entry.card.number }}</span>
                   </div>
                 } @empty {
                   <p class="drop-hint">Drop cards here</p>
@@ -128,7 +132,7 @@ const UNBOXED = -1;
           }
 
           @if (!box.autoSort) {
-            <div class="section-head">
+            <div class="section-head pile-head">
               <h2>Unboxed pile</h2>
               <span>{{ pile().length }}</span>
             </div>
@@ -163,53 +167,91 @@ const UNBOXED = -1;
   `,
   styles: `
     .hero {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 12px 16px;
+      padding: 8px 16px 0;
+      text-align: center;
       app-box-3d {
-        width: 46%;
-        flex-shrink: 0;
-      }
-      h2 {
-        margin: 0;
-        font-size: 16px;
+        display: block;
+        width: min(62%, 240px);
+        margin: 0 auto;
       }
       p {
         margin: 4px 0 0;
         font-size: 13px;
         color: var(--ion-color-medium);
       }
-      .fill-bar {
-        margin: 10px 0 6px;
-      }
-      .value {
-        color: var(--ion-color-success);
-        font-weight: 600;
-      }
-      .pill {
-        margin-top: 8px;
-      }
     }
-    .meta {
-      min-width: 0;
+    .hud-stat small {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ion-color-medium);
+      -webkit-text-fill-color: var(--ion-color-medium);
     }
     .mode {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin: 0 16px 4px;
+      margin: 12px 16px 8px;
       p {
-        flex: 1;
-        margin: 0;
+        margin: 8px 2px 0;
         font-size: 12px;
+        text-align: center;
         color: var(--ion-color-medium);
       }
-      ion-button {
+    }
+    .row-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: calc(100% - 32px);
+      margin: 10px 16px 0;
+      padding: 12px 14px;
+      border-radius: var(--vault-radius);
+      border: 1px solid var(--vault-panel-edge);
+      background: var(--vault-panel);
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      > ion-icon {
         flex-shrink: 0;
-        --padding-start: 10px;
-        --padding-end: 10px;
+        font-size: 16px;
+        color: var(--ion-color-medium);
       }
+      h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      p {
+        margin: 2px 0 0;
+        font-size: 12px;
+        color: var(--ion-color-medium);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+    .row-head.open {
+      margin-bottom: 10px;
+    }
+    .row-title {
+      flex: 1;
+      min-width: 0;
+    }
+    .row-fill {
+      flex-shrink: 0;
+      width: 64px;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ion-color-medium);
+      .fill-bar {
+        height: 4px;
+        margin-top: 5px;
+      }
+    }
+    .tile-caption b {
+      color: var(--ion-text-color);
+      font-weight: 700;
+    }
+    .pile-head {
+      padding-top: 22px;
     }
     .drop {
       min-height: 76px;
@@ -235,7 +277,6 @@ export class BoxPage {
   private readonly boxes = inject(BoxService);
   private readonly cards = inject(AddCardService);
   private readonly modals = inject(ModalController);
-  private readonly alerts = inject(AlertController);
   private readonly notify = inject(NotifyService);
   private readonly router = inject(Router);
 
@@ -263,7 +304,7 @@ export class BoxPage {
   );
 
   constructor() {
-    addIcons({ chevronDown, chevronForward, createOutline, trashOutline });
+    addIcons({ chevronDown, chevronForward, createOutline });
   }
 
   protected rowName(plural: boolean): string {
@@ -284,7 +325,7 @@ export class BoxPage {
 
   protected async setAutoSort(autoSort: boolean): Promise<void> {
     const box = this.box();
-    if (!box) return;
+    if (!box || box.autoSort === autoSort) return;
     const { id, order, ...draft } = box;
     await this.boxes.update(id!, { ...draft, autoSort });
     await this.notify.show(autoSort ? 'Sorting this box by set order.' : 'Drag cards to arrange this box.', 1600);
@@ -319,23 +360,9 @@ export class BoxPage {
     await modal.present();
     const { data, role } = await modal.onDidDismiss<BoxDraft>();
     if (role === 'save' && data) await this.boxes.update(box.id!, data);
-  }
-
-  protected async remove(): Promise<void> {
-    const box = this.box();
-    if (!box) return;
-    const alert = await this.alerts.create({
-      header: `Delete ${box.name}?`,
-      message: 'Your cards stay in your library and go back to the unboxed pile.',
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Delete', role: 'destructive' },
-      ],
-    });
-    await alert.present();
-    const { role } = await alert.onDidDismiss();
-    if (role !== 'destructive') return;
-    await this.boxes.remove(box.id!);
-    await this.router.navigateByUrl('/tabs/boxes');
+    if (role === 'delete') {
+      await this.boxes.remove(box.id!);
+      await this.router.navigateByUrl('/tabs/boxes');
+    }
   }
 }

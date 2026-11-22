@@ -142,10 +142,12 @@ export class BoxService {
 
   async update(id: number, draft: BoxDraft): Promise<void> {
     const wasAuto = this.boxById(id)?.autoSort ?? true;
+    // Captured before saving: once the box is hand-sorted with no placements, the layout reads it as empty.
+    const rows = this.rowsOf(id);
     await this.db.boxes.update(id, draft);
-    await this.reload();
     // Hand sorting starts from whatever the box held a moment ago, so nothing jumps out of it.
-    if (wasAuto && !draft.autoSort) await this.freeze(id);
+    if (wasAuto && !draft.autoSort) await this.freeze(id, rows);
+    await this.reload();
   }
 
   /** Cards in a deleted box keep their old placement, so the move list tells the user where they went. */
@@ -166,13 +168,11 @@ export class BoxService {
   }
 
   /** Writes the box's current contents down as placements, so a sorted box can become a hand-sorted one. */
-  private async freeze(boxId: number): Promise<void> {
-    const rows = this.rowsOf(boxId);
+  private async freeze(boxId: number, rows: LayoutRow[]): Promise<void> {
     const placements: Placement[] = rows.flatMap(row =>
       row.ownedIds.map((ownedId, position) => ({ ownedId, boxId, row: row.row, position })),
     );
     await this.db.placements.bulkPut(placements);
-    await this.reload();
   }
 
   /** Drops a card into a hand-sorted row at `position`, taking it out of wherever it was. */

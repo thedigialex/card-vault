@@ -1,9 +1,12 @@
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import {
+  AlertController,
   IonButton,
   IonButtons,
   IonContent,
+  IonFooter,
   IonHeader,
+  IonIcon,
   IonInput,
   IonItem,
   IonLabel,
@@ -16,6 +19,9 @@ import {
   ModalController,
 } from '@ionic/angular';
 
+import { addIcons } from 'ionicons';
+import { trashOutline } from 'ionicons/icons';
+
 import { CatalogService } from '../data/catalog.service';
 import { gameById } from '../games/games';
 import { Box3dComponent } from './box-3d.component';
@@ -27,17 +33,14 @@ import { Box } from './layout';
   selector: 'app-box-form',
   imports: [
     IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent, IonList, IonItem, IonInput, IonSelect,
-    IonSelectOption, IonLabel, IonToggle, Box3dComponent,
+    IonSelectOption, IonLabel, IonToggle, IonFooter, IonIcon, Box3dComponent,
   ],
   template: `
     <ion-header>
       <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-button (click)="modals.dismiss()">Cancel</ion-button>
-        </ion-buttons>
         <ion-title>{{ box ? 'Edit box' : 'New box' }}</ion-title>
         <ion-buttons slot="end">
-          <ion-button strong [disabled]="!valid()" (click)="save()">Save</ion-button>
+          <ion-button (click)="modals.dismiss()">Cancel</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
@@ -121,7 +124,18 @@ import { Box } from './layout';
         }
       </div>
       <p class="hint">Boxes fill in the order you create them: the first box gets the lowest set numbers.</p>
+      @if (box) {
+        <ion-button class="delete" fill="clear" color="danger" expand="block" (click)="remove()">
+          <ion-icon slot="start" name="trash-outline" />
+          Delete box
+        </ion-button>
+      }
     </ion-content>
+    <ion-footer>
+      <ion-toolbar>
+        <ion-button expand="block" [disabled]="!valid()" (click)="save()">{{ box ? 'Save changes' : 'Create box' }}</ion-button>
+      </ion-toolbar>
+    </ion-footer>
   `,
   styles: `
     .preview {
@@ -167,10 +181,17 @@ import { Box } from './layout';
       color: var(--ion-color-medium);
       font-size: 13px;
     }
+    .delete {
+      margin: 8px 16px 24px;
+    }
+    ion-footer ion-toolbar {
+      padding: 8px 16px calc(8px + var(--ion-safe-area-bottom));
+    }
   `,
 })
 export class BoxFormComponent implements OnInit {
   protected readonly modals = inject(ModalController);
+  private readonly alerts = inject(AlertController);
   private readonly catalog = inject(CatalogService);
 
   box?: Box;
@@ -202,6 +223,10 @@ export class BoxFormComponent implements OnInit {
   });
   protected readonly valid = computed(() => this.name().trim() !== '' && this.size() >= 1);
 
+  constructor() {
+    addIcons({ trashOutline });
+  }
+
   ngOnInit(): void {
     const box = this.box;
     this.name.set(box?.name ?? this.suggestedName);
@@ -232,5 +257,19 @@ export class BoxFormComponent implements OnInit {
       autoSort: this.autoSort(),
     };
     void this.modals.dismiss(draft, 'save');
+  }
+
+  protected async remove(): Promise<void> {
+    const alert = await this.alerts.create({
+      header: `Delete ${this.box?.name}?`,
+      message: 'Your cards stay in your library and go back to the unboxed pile.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Delete', role: 'destructive' },
+      ],
+    });
+    await alert.present();
+    const { role } = await alert.onDidDismiss();
+    if (role === 'destructive') void this.modals.dismiss(null, 'delete');
   }
 }
