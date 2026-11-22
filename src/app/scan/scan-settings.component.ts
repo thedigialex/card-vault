@@ -10,6 +10,7 @@ import {
   IonSelect,
   IonSelectOption,
   IonTitle,
+  IonToggle,
   IonToolbar,
   ModalController,
 } from '@ionic/angular';
@@ -19,7 +20,7 @@ import {
   selector: 'app-scan-settings',
   imports: [
     IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent, IonList, IonItem, IonSelect,
-    IonSelectOption, IonNote,
+    IonSelectOption, IonNote, IonToggle,
   ],
   template: `
     <ion-header>
@@ -56,6 +57,24 @@ import {
       <ion-note class="note">
         Where each scanned copy goes. Only hand-sorted boxes are listed; auto-sorted boxes fill themselves.
       </ion-note>
+
+      <ion-list inset>
+        <ion-item>
+          <ion-select label="Rescan after" labelPlacement="stacked" interface="popover" [value]="delay()" (ionChange)="pickDelay($event.detail.value)">
+            @for (option of delays; track option) {
+              <ion-select-option [value]="option">{{ option }} seconds</ion-select-option>
+            }
+          </ion-select>
+        </ion-item>
+      </ion-list>
+      <ion-note class="note">In Auto mode, how long to wait after adding a card before reading the next one.</ion-note>
+
+      <ion-list inset>
+        <ion-item>
+          <ion-toggle [checked]="soundOn()" (ionChange)="pickSound($event.detail.checked)">Sound</ion-toggle>
+        </ion-item>
+      </ion-list>
+      <ion-note class="note">Beeps when a card is found or added.</ion-note>
     </ion-content>
   `,
   styles: `
@@ -76,18 +95,37 @@ export class ScanSettingsComponent implements OnInit {
   boxChoice = 0;
   onGame: (id: string) => void = () => undefined;
   onBox: (id: number) => void = () => undefined;
+  sound = true;
+  delays: number[] = [];
+  delayChoice = 3;
+  onDelay: (seconds: number) => void = () => undefined;
+  onSound: (on: boolean) => void = () => undefined;
 
   protected readonly game = signal('auto');
   protected readonly box = signal(0);
+  protected readonly soundOn = signal(true);
+  protected readonly delay = signal(3);
 
   ngOnInit(): void {
     this.game.set(this.gameChoice);
     this.box.set(this.boxChoice);
+    this.soundOn.set(this.sound);
+    this.delay.set(this.delayChoice);
   }
 
   protected pickGame(id: string): void {
     this.game.set(id);
     this.onGame(id);
+  }
+
+  protected pickDelay(seconds: number): void {
+    this.delay.set(seconds);
+    this.onDelay(seconds);
+  }
+
+  protected pickSound(on: boolean): void {
+    this.soundOn.set(on);
+    this.onSound(on);
   }
 
   protected pickBox(id: number): void {

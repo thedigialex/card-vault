@@ -16,8 +16,6 @@ import {
   IonItem,
   IonSegment,
   IonSegmentButton,
-  IonSelect,
-  IonSelectOption,
   IonProgressBar,
   IonSpinner,
   IonTitle,
@@ -25,7 +23,7 @@ import {
   ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
-import { optionsOutline, volumeHighOutline, volumeMuteOutline } from 'ionicons/icons';
+import { optionsOutline } from 'ionicons/icons';
 
 import { BoxService } from '../boxes/box.service';
 import { CatalogService } from '../data/catalog.service';
@@ -65,7 +63,7 @@ interface AddedCard {
   selector: 'app-scan',
   imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonContent, IonSegment, IonSegmentButton,
-    IonChip, IonItem, IonInput, IonIcon, IonSelect, IonSelectOption, IonSpinner, IonProgressBar, DecimalPipe,
+    IonChip, IonItem, IonInput, IonIcon, IonSpinner, IonProgressBar, DecimalPipe,
   ],
   template: `
     <ion-header>
@@ -75,9 +73,6 @@ interface AddedCard {
         </ion-buttons>
         <ion-title>Scan cards</ion-title>
         <ion-buttons slot="end">
-          <ion-button [attr.aria-label]="muted() ? 'Unmute' : 'Mute'" (click)="muted.set(!muted())">
-            <ion-icon slot="icon-only" [name]="muted() ? 'volume-mute-outline' : 'volume-high-outline'" />
-          </ion-button>
           <ion-button class="settings" [class.on]="customised()" aria-label="Scanner settings" (click)="openSettings()">
             <ion-icon slot="icon-only" name="options-outline" />
           </ion-button>
@@ -89,17 +84,6 @@ interface AddedCard {
           <ion-segment-button value="auto">Auto</ion-segment-button>
         </ion-segment>
       </ion-toolbar>
-      @if (mode() === 'auto') {
-        <ion-toolbar>
-          <ion-item lines="none">
-            <ion-select label="Rescan after" labelPlacement="fixed" interface="popover" [value]="delay()" (ionChange)="delay.set($event.detail.value)">
-              @for (option of delays; track option) {
-                <ion-select-option [value]="option">{{ option }} seconds</ion-select-option>
-              }
-            </ion-select>
-          </ion-item>
-        </ion-toolbar>
-      }
     </ion-header>
     <ion-content [scrollY]="false">
       <div class="layout">
@@ -552,7 +536,7 @@ export class ScanPage {
   protected readonly targetBox = signal(0);
   protected readonly handSorted = computed(() => this.boxes.boxes().filter(box => !box.autoSort));
   /** Marks the settings button when the scanner isn't on its defaults. */
-  protected readonly customised = computed(() => this.gameChoice() !== 'auto' || this.targetBox() !== 0);
+  protected readonly customised = computed(() => this.gameChoice() !== 'auto' || this.targetBox() !== 0 || this.muted());
   private readonly entered = signal(false);
 
   private byNumber = new Map<string, CatalogCard>();
@@ -576,7 +560,7 @@ export class ScanPage {
   private readonly canvas = document.createElement('canvas');
 
   constructor() {
-    addIcons({ optionsOutline, volumeHighOutline, volumeMuteOutline });
+    addIcons({ optionsOutline });
     // The installed games arrive from the database a moment after the page opens.
     effect(() => {
       // With no games yet, scanning still works: the first card read offers its game for download.
@@ -721,9 +705,14 @@ export class ScanPage {
         boxChoice: this.targetBox(),
         onGame: (id: string) => this.chooseGame(id),
         onBox: (id: number) => this.targetBox.set(id),
+        sound: !this.muted(),
+        onSound: (on: boolean) => this.muted.set(!on),
+        delays: this.delays,
+        delayChoice: this.delay(),
+        onDelay: (seconds: number) => this.delay.set(seconds),
       },
-      breakpoints: [0, 0.6, 1],
-      initialBreakpoint: 0.6,
+      breakpoints: [0, 0.8, 1],
+      initialBreakpoint: 0.8,
     });
     await modal.present();
   }
