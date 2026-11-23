@@ -108,7 +108,6 @@ export class BackupService {
       }
     }
 
-    if (downloaded.length) await this.prices.reload();
     onStep('Restoring your vault…');
     const db = this.db;
     const catalogCards = await db.cards.bulkGet([...new Set(backup.cards.map(card => card.cardId))]);
@@ -143,12 +142,11 @@ export class BackupService {
     return { cards: owned.length, unmatched, failedGames };
   }
 
-  /** Games whose prices come separately; one at a time, since the price service tracks one update. */
+  /** One game at a time, since the price service tracks one update. */
   private async fetchPrices(gameIds: string[]): Promise<void> {
     for (const gameId of gameIds) {
-      if (!gameById(gameId)?.priceGame) continue;
       try {
-        await this.prices.update(gameId);
+        await this.prices.afterInstall(gameId);
       } catch {
         // The Games tab can fetch them later.
       }

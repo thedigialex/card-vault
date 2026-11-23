@@ -1,5 +1,5 @@
 import { CardDetails, CardStat, CatalogCard, FetchOptions, GameDefinition, GameSet, Printing } from '../data/models';
-import { asText, getJson, trimmed } from './card-codes';
+import { asText, getJson, ocrDigits, trimmed } from './card-codes';
 import { collectorKey } from './magic';
 
 const API = 'https://api.tcgdex.net/v2';
@@ -94,11 +94,11 @@ export function rarityCode(rarity: string | null | undefined): string {
 }
 
 /** Printed numbers are three digits ("025/198"); older sets' "1/102" reads the same once padded. */
-export function padNumber(localId: string): string {
+function padNumber(localId: string): string {
   return /^\d+$/.test(localId) ? localId.padStart(3, '0') : localId.toUpperCase();
 }
 
-export function pokemonNumber(set: PokemonSetInfo, localId: string): string {
+function pokemonNumber(set: PokemonSetInfo, localId: string): string {
   return `${(set.code ?? set.id).toUpperCase()}-${padNumber(localId)}`;
 }
 
@@ -233,7 +233,6 @@ export function pokemonPriceReader(cards: CatalogCard[]): (raw: string, setName:
   };
 }
 
-const AS_DIGIT: Record<string, string> = { O: '0', Q: '0', D: '0', I: '1', L: '1', '|': '1', S: '5', B: '8' };
 
 /** Scarlet & Violet onwards print "SVI EN 025/198" bottom-left; older cards carry only a set symbol. */
 export function pokemonScanCandidates(text: string): string[] {
@@ -241,7 +240,7 @@ export function pokemonScanCandidates(text: string): string[] {
   const pattern = /(?:^|[^A-Z0-9])([A-Z]{2,4})\s*(?:EN\s*)?([0-9OQDILSB|]{1,3})\s*\/\s*[0-9OQDILSB|]{2,3}(?![0-9])/g;
   for (const [, code, raw] of text.toUpperCase().matchAll(pattern)) {
     if (code === 'EN') continue;
-    const digits = [...raw].map(character => AS_DIGIT[character] ?? character).join('');
+    const digits = ocrDigits(raw);
     if (/^\d+$/.test(digits)) found.add(`${code}-${digits.padStart(3, '0')}`);
   }
   return [...found];

@@ -2,7 +2,6 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import {
-  AlertController,
   IonButton,
   IonCheckbox,
   IonContent,
@@ -173,7 +172,6 @@ export class GamesPage {
   private readonly collection = inject(CollectionService);
   private readonly images = inject(ImageStore);
   private readonly backup = inject(BackupService);
-  private readonly alerts = inject(AlertController);
   protected readonly restoring = signal(false);
 
   protected readonly withPrices = signal(true);
@@ -231,16 +229,8 @@ export class GamesPage {
       `${backup.lists.length} lists`,
     ].join(', ');
     const here = this.collection.entries().length;
-    const alert = await this.alerts.create({
-      header: 'Restore this backup?',
-      message: `Made ${made}: ${counts}.${here ? ` The ${here.toLocaleString()} cards on this phone, and its boxes and lists, will be replaced.` : ''}`,
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Restore', role: 'confirm' },
-      ],
-    });
-    await alert.present();
-    if ((await alert.onDidDismiss()).role !== 'confirm') return;
+    const replaces = here ? ` The ${here.toLocaleString()} cards on this phone, and its boxes and lists, will be replaced.` : '';
+    if (!(await this.notify.confirm('Restore this backup?', `Made ${made}: ${counts}.${replaces}`, 'Restore'))) return;
 
     this.restoring.set(true);
     try {
@@ -299,22 +289,18 @@ export class GamesPage {
       this.step.set(sets || installed?.sets ? 'Downloading sets…' : 'Downloading cards…');
       const result = await this.catalog.install(gameId, { sets, withPrices: this.withPrices() });
       parts.push(`${result.cards.toLocaleString()} cards`);
-      if (result.priced !== undefined) {
-        // A game with a second price step reports one combined count after it.
-        if (!game?.priceGame) parts.push(`${result.priced.toLocaleString()} priced`);
-        await this.prices.reload();
-      }
+      // A game with a second price step reports one combined count after it.
+      if (result.priced !== undefined && !game?.priceGame) parts.push(`${result.priced.toLocaleString()} priced`);
     } catch (error) {
       console.error(`Installing ${gameId} failed`, error);
       failed = true;
     }
 
-    const priced = game?.priceGame;
-    if (!failed && this.withPrices() && priced) {
+    if (!failed && this.withPrices()) {
       try {
         this.step.set('Fetching prices…');
-        const count = await this.prices.update(gameId);
-        parts.push(`${count.toLocaleString()} priced`);
+        const count = await this.prices.afterInstall(gameId);
+        if (count !== undefined) parts.push(`${count.toLocaleString()} priced`);
       } catch {
         parts.push('prices failed');
       }

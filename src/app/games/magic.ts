@@ -1,6 +1,6 @@
 import { CardDetails, CardStat, CatalogCard, CatalogDownload, FetchOptions, GameDefinition, GameSet } from '../data/models';
 import { PriceRow, PriceVariant, priceKey } from '../prices/prices';
-import { getJson, trimmed } from './card-codes';
+import { dollars, getJson, ocrDigits, pause, trimmed } from './card-codes';
 
 const API = 'https://api.scryfall.com';
 const SETS_URL = `${API}/sets`;
@@ -10,7 +10,7 @@ const SET_CARDS_URL = (code: string) =>
 const REQUEST_GAP_MS = 110;
 
 /** Sets a collector would open packs of; everything else (promos, tokens, oversized...) is behind "All sets". */
-export const MAIN_SET_KINDS = new Set([
+const MAIN_SET_KINDS = new Set([
   'core', 'expansion', 'masters', 'draft_innovation', 'commander', 'starter', 'funny', 'duel_deck', 'eternal',
 ]);
 const SKIPPED_SET_KINDS = new Set(['memorabilia', 'minigame', 'vanguard', 'alchemy', 'treasure_chest']);
@@ -66,9 +66,8 @@ interface SearchPage {
   next_page?: string;
 }
 
-const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export function magicNumber(set: string, collector: string): string {
+function magicNumber(set: string, collector: string): string {
   return `${set.toUpperCase()}-${collector}`;
 }
 
@@ -80,7 +79,7 @@ export function collectorKey(collector: string): string {
   return `${digits.padStart(5, '0')}${prefix}${suffix}`;
 }
 
-export function magicSortKey(card: Pick<ScryfallCard, 'set' | 'collector_number'>, released: string): string {
+function magicSortKey(card: Pick<ScryfallCard, 'set' | 'collector_number'>, released: string): string {
   return `${released || '9999-99-99'}|${card.set.toUpperCase().padEnd(6, '_')}|${collectorKey(card.collector_number)}`;
 }
 
@@ -148,11 +147,6 @@ export function buildMagicCatalog(cards: ScryfallCard[], sets: Map<string, Scryf
   });
 }
 
-const dollars = (value: string | null | undefined): number | undefined => {
-  const parsed = value ? Number(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
 /** Scryfall carries TCGplayer market prices on every card, so Magic needs no second price download. */
 export function magicPrices(cards: ScryfallCard[], updatedAt: number): PriceRow[] {
   const rows: PriceRow[] = [];
@@ -217,7 +211,6 @@ const SET_LINE = /(?:^|[^A-Z0-9])([A-Z0-9]{3,5})\s*[•·*.+-]?\s*(?:EN|ES|FR|DE
 const NUMBER_OF_TOTAL = /(?:^|[^A-Z0-9])([0-9OQDIL|]{1,4})\s*\/\s*[0-9OIL]{1,4}/g;
 const NUMBER_RARITY = /(?:^|[^A-Z0-9/])([0-9OQDIL|]{3,4})\s+[CURMSLTP](?![A-Z])/g;
 
-const digitsOf = (raw: string) => raw.replace(/[OQD]/g, '0').replace(/[IL|]/g, '1');
 
 function setsOn(line: string): string[] {
   return [...line.matchAll(SET_LINE)].map(match => match[1]).filter(code => /[A-Z]/.test(code));
@@ -225,7 +218,7 @@ function setsOn(line: string): string[] {
 
 function numbersOn(line: string): string[] {
   return [...line.matchAll(NUMBER_OF_TOTAL), ...line.matchAll(NUMBER_RARITY)]
-    .map(match => digitsOf(match[1]))
+    .map(match => ocrDigits(match[1]))
     .filter(raw => /^\d+$/.test(raw))
     .map(raw => String(Number(raw)));
 }

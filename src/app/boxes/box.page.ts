@@ -16,6 +16,7 @@ import {
   ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
+import { toggled } from '../shared/toggled';
 import { chevronDown, chevronForward, createOutline } from 'ionicons/icons';
 
 import { AddCardService } from '../data/add-card.service';
@@ -312,11 +313,7 @@ export class BoxPage {
   }
 
   protected toggle(row: number): void {
-    this.open.update(open => {
-      const next = new Set(open);
-      if (!next.delete(row)) next.add(row);
-      return next;
-    });
+    this.open.update(open => toggled(open, row));
   }
 
   protected readonly unboxed = UNBOXED;

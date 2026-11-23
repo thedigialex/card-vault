@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import Dexie from 'dexie';
 
-import { gameById } from '../games/games';
+import { gameById, gameName } from '../games/games';
 import { VaultDb } from './db';
 import { CatalogCard, CatalogDownload, GameDefinition, GameSet, InstalledGame, ownedSortKey } from './models';
 import { groupBySet } from './sets';
@@ -44,10 +44,7 @@ export class CatalogService {
 
   /** Installed games with the names the UI shows, so pages don't each re-join the two. */
   readonly installedGames = computed(() =>
-    this.installed().map(installed => {
-      const game = gameById(installed.id);
-      return { id: installed.id, name: game?.name ?? installed.id, short: game?.shortName ?? game?.name ?? installed.id };
-    }),
+    this.installed().map(({ id }) => ({ id, name: gameName(id), short: gameName(id, true) })),
   );
 
   constructor() {

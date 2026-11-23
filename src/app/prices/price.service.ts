@@ -60,6 +60,15 @@ export class PriceService {
   }
 
   /**
+   * After a card list download: shows any prices that came with it, then fetches the game's separate price
+   * source if it has one. Returns how many cards that priced, or undefined when there's no separate source.
+   */
+  async afterInstall(gameId: string): Promise<number | undefined> {
+    await this.reload();
+    return gameById(gameId)?.priceGame ? this.update(gameId) : undefined;
+  }
+
+  /**
    * Prices come from worththerip.com, which publishes TCGplayer market snapshots per set with no
    * key and open CORS, so the app can read them without a server of its own.
    */

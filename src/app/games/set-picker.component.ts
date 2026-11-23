@@ -16,6 +16,7 @@ import {
   ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
+import { toggled } from '../shared/toggled';
 import { checkmarkCircle, ellipseOutline, lockClosed } from 'ionicons/icons';
 
 import { CatalogService } from '../data/catalog.service';
@@ -263,11 +264,7 @@ export class SetPickerComponent implements OnInit {
   }
 
   protected toggle(code: string): void {
-    this.picked.update(picked => {
-      const next = new Set(picked);
-      if (!next.delete(code)) next.add(code);
-      return next;
-    });
+    this.picked.update(picked => toggled(picked, code));
   }
 
   protected pickShown(on: boolean): void {

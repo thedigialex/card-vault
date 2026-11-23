@@ -5,7 +5,6 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { TextRecognition } from '@capacitor-mlkit/text-recognition';
 import {
-  IonBackButton,
   IonButton,
   IonButtons,
   IonChip,
@@ -29,7 +28,7 @@ import { BoxService } from '../boxes/box.service';
 import { CatalogService } from '../data/catalog.service';
 import { CollectionService } from '../data/collection.service';
 import { CatalogCard, GameSet, REGULAR_PRINTING, printingLabel } from '../data/models';
-import { GAMES, gameById } from '../games/games';
+import { GAMES, gameById, gameName } from '../games/games';
 import { PriceService } from '../prices/price.service';
 import { NotifyService } from '../shared/notify.service';
 import { RepeatGuard, acceptable, afterAdd, afterFrame, emptyGuard } from './auto-scan';
@@ -62,15 +61,12 @@ interface AddedCard {
 @Component({
   selector: 'app-scan',
   imports: [CardSrcDirective,
-    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonContent, IonSegment, IonSegmentButton,
+    IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent, IonSegment, IonSegmentButton,
     IonChip, IonItem, IonInput, IonIcon, IonSpinner, IonProgressBar, DecimalPipe,
   ],
   template: `
     <ion-header>
       <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-back-button defaultHref="/tabs/add" />
-        </ion-buttons>
         <ion-title>Scan cards</ion-title>
         <ion-buttons slot="end">
           <ion-button class="settings" [class.on]="customised()" aria-label="Scanner settings" (click)="openSettings()">
@@ -518,8 +514,8 @@ export class ScanPage {
   private readonly detected = signal<string | null>(null);
   protected readonly activeGame = computed(() => (this.gameChoice() === 'auto' ? this.detected() : this.gameChoice()));
   protected readonly activeGameName = computed(() => {
-    const game = gameById(this.activeGame() ?? '');
-    return game ? (game.shortName ?? game.name) : '';
+    const id = this.activeGame();
+    return id ? gameName(id, true) : '';
   });
   protected readonly downloading = signal(false);
   /** Cards sharing the found card's name, when it was recognised by name rather than number. */
@@ -789,10 +785,8 @@ export class ScanPage {
     this.status.set(`Downloading ${offer.wholeGame ? offer.gameName : offer.set.name}…`);
     try {
       const result = await this.catalog.addSet(offer.gameId, offer.set.code);
-      if (result.priced !== undefined) await this.prices.reload();
-      const game = gameById(offer.gameId);
-      // Worth the Rip prices are a separate, slower download; let them arrive while scanning carries on.
-      if (game?.priceGame && !game.pricesWithCatalog) void this.prices.update(offer.gameId).catch(() => undefined);
+      // Prices are a separate, slower download; let them arrive while scanning carries on.
+      void this.prices.afterInstall(offer.gameId).catch(() => undefined);
       this.setLookups.clear();
       this.offer.set(null);
       this.lastUnknown = '';
@@ -860,10 +854,8 @@ export class ScanPage {
   }
 
   private async autoAdd(card: CatalogCard): Promise<void> {
-    const ownedId = await this.collection.add(card, REGULAR_PRINTING);
-    await this.fileAway(ownedId);
+    await this.addCopy(card, REGULAR_PRINTING);
     this.guard = afterAdd(card.id);
-    this.added.update(list => [{ card, ownedId }, ...list]);
     this.resumeAt = Date.now() + this.delay() * 1000;
     this.cooldown.set(this.delay());
     this.status.set(`Added ${card.number}`);
@@ -900,17 +892,17 @@ export class ScanPage {
 
   protected async add(card: CatalogCard): Promise<void> {
     const printingId = this.printing();
-    const ownedId = await this.collection.add(card, printingId);
-    await this.fileAway(ownedId);
-    this.added.update(list => [{ card, ownedId }, ...list]);
+    await this.addCopy(card, printingId);
     this.skip();
     await this.notify.show(`Added ${card.name} (${printingLabel(card, printingId)})`, 1200);
   }
 
-  /** Nothing chosen leaves the card loose in the unboxed pile. */
-  private async fileAway(ownedId: number): Promise<void> {
+  /** Files the copy into the chosen box; with none chosen it stays loose in the unboxed pile. */
+  private async addCopy(card: CatalogCard, printingId: string): Promise<void> {
+    const ownedId = await this.collection.add(card, printingId);
     const boxId = this.targetBox();
     if (boxId) await this.boxes.fileInto(ownedId, boxId);
+    this.added.update(list => [{ card, ownedId }, ...list]);
   }
 
   private beep(tone: 'found' | 'ready' | 'undo'): void {

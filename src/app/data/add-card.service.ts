@@ -27,16 +27,18 @@ export class AddCardService {
     await modal.present();
   }
 
+  /** The full-card viewer; `siblings` are the cards around it to swipe through. */
+  async view(card: CatalogCard, siblings?: CatalogCard[]): Promise<void> {
+    const { CardViewerComponent } = await import('../library/card-viewer.component');
+    const modal = await this.modals.create({ component: CardViewerComponent, componentProps: { card, cards: siblings } });
+    await modal.present();
+  }
+
   /** `confirm` asks even for single-printing cards, for screens where a stray tap shouldn't add a card. */
   async add(card: CatalogCard, confirm = false, siblings?: CatalogCard[]): Promise<void> {
     const printingId = card.printings.length || confirm ? await this.pickPrinting(card) : REGULAR_PRINTING;
     if (printingId === null) return;
-    if (printingId === VIEW) {
-      const { CardViewerComponent } = await import('../library/card-viewer.component');
-      const modal = await this.modals.create({ component: CardViewerComponent, componentProps: { card, cards: siblings } });
-      await modal.present();
-      return;
-    }
+    if (printingId === VIEW) return this.view(card, siblings);
     await this.collection.add(card, printingId);
     await this.notify.show(`Added ${card.name} (${card.number}, ${printingLabel(card, printingId)})`);
   }

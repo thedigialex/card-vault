@@ -26,7 +26,6 @@ import { CollectionService } from '../data/collection.service';
 import { CatalogCard, printingLabel } from '../data/models';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
-import { CardViewerComponent } from './card-viewer.component';
 
 @Component({
   selector: 'app-card-detail',
@@ -220,12 +219,8 @@ export class CardDetailComponent {
     if (first !== undefined) await this.lists.toggle(listId, first);
   }
 
-  protected async view(card: CatalogCard): Promise<void> {
-    const modal = await this.modals.create({
-      component: CardViewerComponent,
-      componentProps: { card, cards: this.siblings },
-    });
-    await modal.present();
+  protected view(card: CatalogCard): Promise<void> {
+    return this.adder.view(card, this.siblings);
   }
 
   protected async addAnother(card: CatalogCard): Promise<void> {

@@ -3,6 +3,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { IonIcon } from '@ionic/angular';
 import { addIcons } from 'ionicons';
+import { toggled } from '../shared/toggled';
 import { chevronDown, trophy } from 'ionicons/icons';
 
 import { AddCardService } from '../data/add-card.service';
@@ -420,10 +421,6 @@ export class CatalogBrowserComponent {
   }
 
   protected toggle(setCode: string): void {
-    this.expanded.update(open => {
-      const next = new Set(open);
-      if (!next.delete(setCode)) next.add(setCode);
-      return next;
-    });
+    this.expanded.update(open => toggled(open, setCode));
   }
 }

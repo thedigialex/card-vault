@@ -1,6 +1,6 @@
 import { CardDetails, CardStat, CatalogCard, CatalogDownload, FetchOptions, GameDefinition, GameSet, Printing } from '../data/models';
 import { PriceRow, PriceVariant, priceKey } from '../prices/prices';
-import { asText, getJson, trimmed } from './card-codes';
+import { asText, dollars, getJson, ocrDigits, pause, trimmed } from './card-codes';
 
 const API = 'https://db.ygoprodeck.com/api/v7';
 const SETS_URL = `${API}/cardsets.php`;
@@ -76,7 +76,7 @@ export function mergeSets(sets: YgoSet[]): MergedSet[] {
 }
 
 /** "(UR)" -> "UR"; rarities without a code ("Quarter Century Secret Rare") use their initials. */
-export function rarityCodeOf(entry: Pick<YgoCardSet, 'set_rarity' | 'set_rarity_code'>): string {
+function rarityCodeOf(entry: Pick<YgoCardSet, 'set_rarity' | 'set_rarity_code'>): string {
   const code = (entry.set_rarity_code ?? '').replace(/[()]/g, '').trim();
   if (code) return code;
   return entry.set_rarity
@@ -162,11 +162,6 @@ function printingsFrom(entries: YgoCardSet[]): Printing[] {
   return printings;
 }
 
-const dollars = (value: string | undefined): number | undefined => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-};
-
 export function buildYugiohCatalog(cards: YgoCard[], sets: MergedSet[], updatedAt = Date.now()): CatalogDownload {
   const codeOfName = new Map<string, string>();
   const setOf = new Map<string, MergedSet>();
@@ -230,7 +225,6 @@ export function toGameSet(set: MergedSet): GameSet {
   };
 }
 
-const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function allSets(): Promise<MergedSet[]> {
   return mergeSets(await getJson<YgoSet[]>(SETS_URL));
@@ -250,14 +244,13 @@ export function yugiohPriceNumber(raw: string): string | null {
   return code && /^[A-Z0-9]+-[A-Z]*\d+[A-Z]?$/.test(code) ? code : null;
 }
 
-const AS_DIGIT: Record<string, string> = { O: '0', Q: '0', D: '0', I: '1', L: '1', '|': '1', S: '5', B: '8' };
 
 /** The code sits under the art, right side: "LOB-EN001", older "LOB-001" or "LOB-E001". */
 export function yugiohScanCandidates(text: string): string[] {
   const found = new Set<string>();
   const pattern = /(?:^|[^A-Z0-9])([A-Z0-9]{2,5})\s?[-–—~]\s?([A-Z]{0,2})([0-9OQDILSB|]{3})(?![0-9])/g;
   for (const [, set, region, raw] of text.toUpperCase().matchAll(pattern)) {
-    const digits = [...raw].map(character => AS_DIGIT[character] ?? character).join('');
+    const digits = ocrDigits(raw);
     if (!/^\d{3}$/.test(digits) || !/[A-Z]/.test(set)) continue;
     found.add(`${set}-${region}${digits}`);
     // OCR reads the letter O in a set code ("LOB") as a zero.

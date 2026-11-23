@@ -1,6 +1,5 @@
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import {
-  AlertController,
   IonButton,
   IonButtons,
   IonContent,
@@ -23,7 +22,7 @@ import { addIcons } from 'ionicons';
 import { trashOutline } from 'ionicons/icons';
 
 import { CatalogService } from '../data/catalog.service';
-import { gameById } from '../games/games';
+import { NotifyService } from '../shared/notify.service';
 import { Box3dComponent } from './box-3d.component';
 import { ColorPickerComponent } from './color-picker.component';
 import { BOX_MODELS, CUSTOM_MODEL, DEFAULT_COLOR, boxModel, rowWord, sizeOf } from './box-models';
@@ -149,7 +148,7 @@ import { Box } from './layout';
 })
 export class BoxFormComponent implements OnInit {
   protected readonly modals = inject(ModalController);
-  private readonly alerts = inject(AlertController);
+  private readonly notify = inject(NotifyService);
   private readonly catalog = inject(CatalogService);
 
   box?: Box;
@@ -171,9 +170,7 @@ export class BoxFormComponent implements OnInit {
     const { rows, rowCapacity } = sizeOf(this.modelId(), this.rows(), this.rowCapacity());
     return rows * rowCapacity;
   });
-  protected readonly games = computed(() =>
-    this.catalog.installed().map(g => ({ id: g.id, name: gameById(g.id)?.name ?? g.id })),
-  );
+  protected readonly games = this.catalog.installedGames;
   protected readonly previewFills = computed(() => {
     const { rows } = sizeOf(this.modelId(), this.rows(), this.rowCapacity());
     return Array.from({ length: Math.min(rows, 8) }, (_, row) => (row === 0 ? 0.75 : row === 1 ? 0.4 : 0.15));
@@ -217,16 +214,9 @@ export class BoxFormComponent implements OnInit {
   }
 
   protected async remove(): Promise<void> {
-    const alert = await this.alerts.create({
-      header: `Delete ${this.box?.name}?`,
-      message: 'Your cards stay in your library and go back to the unboxed pile.',
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Delete', role: 'destructive' },
-      ],
-    });
-    await alert.present();
-    const { role } = await alert.onDidDismiss();
-    if (role === 'destructive') void this.modals.dismiss(null, 'delete');
+    const message = 'Your cards stay in your library and go back to the unboxed pile.';
+    if (await this.notify.confirm(`Delete ${this.box?.name}?`, message, 'Delete', true)) {
+      void this.modals.dismiss(null, 'delete');
+    }
   }
 }

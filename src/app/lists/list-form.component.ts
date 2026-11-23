@@ -1,6 +1,5 @@
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import {
-  AlertController,
   IonButton,
   IonButtons,
   IonContent,
@@ -19,6 +18,7 @@ import { trashOutline } from 'ionicons/icons';
 
 import { DEFAULT_COLOR, boxColor } from '../boxes/box-models';
 import { ColorPickerComponent } from '../boxes/color-picker.component';
+import { NotifyService } from '../shared/notify.service';
 import { CardList, LIST_ICONS, registerListIcons } from './list-models';
 
 export type ListDraft = Pick<CardList, 'name' | 'icon' | 'color'>;
@@ -133,7 +133,7 @@ export type ListDraft = Pick<CardList, 'name' | 'icon' | 'color'>;
 })
 export class ListFormComponent implements OnInit {
   protected readonly modals = inject(ModalController);
-  private readonly alerts = inject(AlertController);
+  private readonly notify = inject(NotifyService);
 
   list?: CardList;
   suggested: ListDraft = { name: 'Deck', icon: 'layers', color: DEFAULT_COLOR };
@@ -165,16 +165,9 @@ export class ListFormComponent implements OnInit {
   }
 
   protected async remove(): Promise<void> {
-    const alert = await this.alerts.create({
-      header: `Delete ${this.list?.name}?`,
-      message: 'The cards stay in your library; only the list goes.',
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        { text: 'Delete', role: 'destructive' },
-      ],
-    });
-    await alert.present();
-    const { role } = await alert.onDidDismiss();
-    if (role === 'destructive') void this.modals.dismiss(null, 'delete');
+    const message = 'The cards stay in your library; only the list goes.';
+    if (await this.notify.confirm(`Delete ${this.list?.name}?`, message, 'Delete', true)) {
+      void this.modals.dismiss(null, 'delete');
+    }
   }
 }

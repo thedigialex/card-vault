@@ -16,6 +16,15 @@ export async function getJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** Spaces out requests to APIs that ban bursts. */
+export const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** A price string as a number; "0" and blanks mean the source has no price. */
+export const dollars = (value: string | null | undefined): number | undefined => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+};
+
 /** OCR reads these as each other, depending on where they sit in a card number. */
 const AS_LETTER: Record<string, string> = { '0': 'O', '1': 'I', '5': 'S', '8': 'B', '2': 'Z', '6': 'G' };
 const AS_DIGIT: Record<string, string> = {
@@ -34,6 +43,9 @@ const AS_DIGIT: Record<string, string> = {
 const SCAN_PATTERN = /([A-Z0-9|]{1,6})\s?[-–—~]\s?([A-Z0-9|]{2,4})(?![A-Z0-9])/g;
 
 const swap = (value: string, map: Record<string, string>) => [...value].map(character => map[character] ?? character).join('');
+
+/** Letters OCR puts where a digit belongs ("O25" -> "025"). */
+export const ocrDigits = (raw: string) => swap(raw, AS_DIGIT);
 
 export interface CodeShape {
   /** Families the game actually prints, e.g. ['BT', 'EX', 'P']; empty accepts any letters. */

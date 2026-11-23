@@ -16,7 +16,7 @@ import { addIcons } from 'ionicons';
 import { add, cubeOutline, layersOutline, swapHorizontal } from 'ionicons/icons';
 
 import { CollectionService } from '../data/collection.service';
-import { gameById } from '../games/games';
+import { gameName } from '../games/games';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
 import { LIST_PRESETS, registerListIcons } from '../lists/list-models';
@@ -267,7 +267,7 @@ export class BoxesPage {
   protected readonly summary = computed(() =>
     this.boxes.boxes().map(box => ({
       box,
-      game: box.game ? (gameById(box.game)?.name ?? box.game) : '',
+      game: box.game ? gameName(box.game) : '',
       ...this.boxes.statsOf(box.id!),
     })),
   );
