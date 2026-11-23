@@ -14,6 +14,8 @@ export class CollectionService {
   private readonly db = inject(VaultDb);
 
   readonly entries = signal<LibraryEntry[]>([]);
+  /** Until true, an empty collection only means it hasn't been read yet. */
+  readonly loaded = signal(false);
 
   readonly entriesByOwned = computed(() => new Map(this.entries().map(entry => [entry.owned.id!, entry])));
 
@@ -36,6 +38,7 @@ export class CollectionService {
       if (card) entries.push({ owned: o, card, printing: printingLabel(card, o.printingId) });
     });
     this.entries.set(entries);
+    this.loaded.set(true);
   }
 
   async add(card: CatalogCard, printingId: string): Promise<number> {

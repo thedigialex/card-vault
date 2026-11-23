@@ -347,7 +347,11 @@ export class CatalogBrowserComponent {
     { value: 'missing', label: 'Missing' },
   ];
 
-  protected readonly cards = signal<CatalogCard[]>([]);
+  private readonly catalogCards = signal<CatalogCard[]>([]);
+  /** Held back until owned counts and prices are read, or every tile starts greyed and covers reshuffle. */
+  protected readonly cards = computed(() =>
+    this.collection.loaded() && this.prices.loaded() ? this.catalogCards() : [],
+  );
   protected readonly expanded = signal(new Set<string>());
   protected readonly counts = this.collection.countsByCard;
 
@@ -404,7 +408,7 @@ export class CatalogBrowserComponent {
       const gameId = this.gameId();
       this.catalog.installed();
       void this.catalog.cardsFor(gameId).then(cards => {
-        if (gameId === this.gameId()) this.cards.set(cards);
+        if (gameId === this.gameId()) this.catalogCards.set(cards);
       });
     });
   }

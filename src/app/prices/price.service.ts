@@ -26,6 +26,7 @@ export class PriceService {
   readonly rows = signal(new Map<string, PriceRow>());
   readonly updating = signal<string | null>(null);
   readonly progress = signal(0);
+  readonly loaded = signal(false);
 
   private readonly markets = computed(
     () => new Map([...this.rows()].map(([key, row]) => [key, row.market])),
@@ -40,6 +41,7 @@ export class PriceService {
   async reload(): Promise<void> {
     const rows = await this.db.prices.toArray();
     this.rows.set(new Map(rows.map(row => [row.key, row])));
+    this.loaded.set(true);
   }
 
   priceOf(card: Priceable): number | undefined {
