@@ -34,9 +34,9 @@ import { NotifyService } from '../shared/notify.service';
 import { RepeatGuard, acceptable, afterAdd, afterFrame, emptyGuard } from './auto-scan';
 import { guideInVideo } from './crop';
 import { GameVote } from './game-detect';
-import { NameIndex } from './name-match';
+import { NameIndex, narrowByClues } from './name-match';
 import { ScanSettingsComponent } from './scan-settings.component';
-import { ScanSoundService } from './scan-sound';
+import { ScanSoundService, ScanTone } from './scan-sound';
 
 const FRAME_INTERVAL_MS = 600;
 const FRAME_MAX_SIDE = 1600;
@@ -51,6 +51,15 @@ interface SetOffer {
   set: GameSet;
   /** The game comes as one download and isn't installed, so the whole game is fetched. */
   wholeGame: boolean;
+}
+
+interface ScanRead {
+  card: CatalogCard | null;
+  candidates: string[];
+  /** Cards sharing the card's name, best guess first, when it was recognised by name. */
+  alternatives: CatalogCard[];
+  /** Several of those cards fit what the camera saw equally well. */
+  unsure: boolean;
 }
 
 interface AddedCard {
@@ -538,6 +547,7 @@ export class ScanPage {
   private byNumber = new Map<string, CatalogCard>();
   private names = new NameIndex([]);
   private pendingAlternatives: CatalogCard[] = [];
+  private pendingUnsure = false;
   private stream: MediaStream | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
@@ -652,6 +662,7 @@ export class ScanPage {
       if (this.gameChoice() === 'auto') this.detected.set(this.vote.add(text));
       const read = this.match(text);
       this.pendingAlternatives = read.alternatives;
+      this.pendingUnsure = read.unsure;
       this.consider(read.card);
       if (!read.card) {
         this.explainMiss(text, read.candidates);
@@ -665,30 +676,34 @@ export class ScanPage {
   }
 
   /** The printed number wins; the name is the fallback for numbers too small for the camera. */
-  private match(text: string): { card: CatalogCard | null; candidates: string[]; alternatives: CatalogCard[] } {
+  private match(text: string): ScanRead {
     // Once the game is known, other games' number shapes and names can't cause a wrong match.
     const active = this.activeGame();
     const inGame = (card: CatalogCard) => !active || card.game === active;
     const candidates = (active ? [active] : this.gameIds()).flatMap(id => gameById(id)?.scanCandidates(text) ?? []);
+    const sure = (card: CatalogCard): ScanRead => ({ card, candidates, alternatives: [], unsure: false });
     for (const number of candidates) {
       const card = this.byNumber.get(number);
-      if (card && inGame(card)) return { card, candidates, alternatives: [] };
+      if (card && inGame(card)) return sure(card);
     }
     // A guessed game can be wrong; a number found in another downloaded game still counts unless locked.
     if (active && this.gameChoice() === 'auto') {
       for (const id of this.gameIds().filter(id => id !== active)) {
         for (const number of gameById(id)?.scanCandidates(text) ?? []) {
           const card = this.byNumber.get(number);
-          if (card?.game === id) return { card, candidates, alternatives: [] };
+          if (card?.game === id) return sure(card);
         }
       }
     }
     const named = this.names.find(text).filter(inGame);
-    // Auto mode can't ask which printing, so it only trusts a name that belongs to one card.
-    if (named.length && (this.mode() === 'manual' || named.length === 1)) {
-      return { card: named[0], candidates, alternatives: named };
-    }
-    return { card: null, candidates, alternatives: [] };
+    if (!named.length) return { card: null, candidates, alternatives: [], unsure: false };
+    // A set code or number elsewhere on the card can still say which of the same-named cards it is.
+    const likely = narrowByClues(text, named);
+    // Cards tend to be scanned a set at a time, so the last card's set is the best guess.
+    const recentSet = this.added()[0]?.card.setCode;
+    const guess = likely.find(card => card.setCode === recentSet) ?? likely[0];
+    const alternatives = [guess, ...likely.filter(card => card !== guess), ...named.filter(card => !likely.includes(card))];
+    return { card: guess, candidates, alternatives, unsure: likely.length > 1 };
   }
 
   protected async openSettings(): Promise<void> {
@@ -841,8 +856,9 @@ export class ScanPage {
     }
     this.lastSeen = null;
     this.phase.set('looking');
-    if (this.mode() === 'auto') void this.autoAdd(card);
-    else this.show(card);
+    if (this.mode() === 'manual') this.show(card);
+    else if (this.pendingUnsure) this.askWhich(card);
+    else void this.autoAdd(card);
   }
 
   private show(card: CatalogCard): void {
@@ -851,6 +867,13 @@ export class ScanPage {
     this.found.set(card);
     this.status.set('Found it');
     this.beep('found');
+  }
+
+  /** Auto mode stops rather than guess between same-named cards; picking one carries on scanning. */
+  private askWhich(card: CatalogCard): void {
+    this.show(card);
+    this.status.set(`${this.pendingAlternatives.length} sets have ${card.name}. Pick one`);
+    this.beep('unsure');
   }
 
   private async autoAdd(card: CatalogCard): Promise<void> {
@@ -905,7 +928,7 @@ export class ScanPage {
     this.added.update(list => [{ card, ownedId }, ...list]);
   }
 
-  private beep(tone: 'found' | 'ready' | 'undo'): void {
+  private beep(tone: ScanTone): void {
     if (!this.muted()) this.sounds.play(tone);
   }
 }

@@ -15,7 +15,7 @@ import {
   ModalController,
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
-import { addOutline, expandOutline, trashOutline } from 'ionicons/icons';
+import { addOutline, chevronForward, expandOutline, trashOutline } from 'ionicons/icons';
 
 import { BoxService } from '../boxes/box.service';
 import { boxColor } from '../boxes/box-models';
@@ -62,24 +62,23 @@ import { PriceService } from '../prices/price.service';
           </div>
         </div>
 
-        @if (lists.lists().length) {
+        @if (lists.lists().length && listCopy() !== undefined) {
           <div class="section-head">
             <h2>Lists</h2>
-            <span>Tap to add or remove</span>
-          </div>
-          <div class="list-chips">
-            @for (option of listOptions(); track option.list.id) {
-              <button
-                class="pill"
-                [class.on]="option.on"
-                [style.--tint]="option.tint"
-                (click)="toggleList(option.list.id!)"
-              >
-                <ion-icon [name]="option.list.icon" />
-                {{ option.list.name }}
-              </button>
+            @if (copies().length > 1) {
+              <span>This copy</span>
             }
           </div>
+          <button class="list-summary" (click)="pickLists()">
+            <span class="chips">
+              @for (list of onLists(); track list.id) {
+                <span class="pill on" [style.--tint]="list.tint"><ion-icon [name]="list.icon" /> {{ list.name }}</span>
+              } @empty {
+                <span class="none">Not on a list yet</span>
+              }
+            </span>
+            <span class="edit">{{ onLists().length ? 'Change' : 'Add to list' }}<ion-icon name="chevron-forward" /></span>
+          </button>
         }
 
         <div class="section-head">
@@ -161,11 +160,44 @@ import { PriceService } from '../prices/price.service';
     .actions {
       padding: 12px 16px calc(16px + var(--ion-safe-area-bottom, 0px));
     }
-    .list-chips {
+    .list-summary {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: calc(100% - 32px);
+      margin: 0 16px;
+      padding: 10px 12px;
+      border: 1px solid var(--vault-panel-edge);
+      border-radius: var(--vault-radius);
+      background: var(--vault-panel);
+      color: inherit;
+      font: inherit;
+      text-align: left;
+    }
+    .chips {
+      flex: 1;
+      min-width: 0;
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      padding: 0 16px;
+      gap: 6px;
+    }
+    .pill.on {
+      border-color: var(--tint);
+      background: color-mix(in srgb, var(--tint) 26%, transparent);
+      color: var(--ion-text-color);
+    }
+    .none {
+      font-size: 13px;
+      color: var(--ion-color-medium);
+    }
+    .edit {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ion-color-primary);
     }
   `,
 })
@@ -180,6 +212,8 @@ export class CardDetailComponent {
   card?: CatalogCard;
   /** Limits the list to one printing; without it every copy of the card is shown. */
   printingId?: string;
+  /** The copy that was tapped, which list changes apply to. */
+  ownedId?: number;
   /** Cards to swipe through in the full-card view. */
   siblings?: CatalogCard[];
 
@@ -198,7 +232,7 @@ export class CardDetailComponent {
   );
 
   constructor() {
-    addIcons({ addOutline, expandOutline, trashOutline });
+    addIcons({ addOutline, chevronForward, expandOutline, trashOutline });
     registerListIcons();
   }
 
@@ -207,16 +241,32 @@ export class CardDetailComponent {
     if (!this.copies().length) await this.modals.dismiss();
   }
 
-  protected readonly listOptions = computed(() => {
-    const first = this.copies()[0]?.ownedId;
-    const on = first === undefined ? [] : (this.lists.listsByOwned().get(first) ?? []);
-    return this.lists.lists().map(list => ({ list, tint: boxColor(list.color).front, on: on.includes(list.id!) }));
+  /** A list holds one copy: the one tapped, or the first copy when opened from the card itself. */
+  protected readonly listCopy = computed(() => {
+    const copies = this.copies();
+    return copies.find(copy => copy.ownedId === this.ownedId)?.ownedId ?? copies[0]?.ownedId;
   });
 
-  /** A list holds one copy; marking from here uses the first copy of this printing. */
-  protected async toggleList(listId: number): Promise<void> {
-    const first = this.copies()[0]?.ownedId;
-    if (first !== undefined) await this.lists.toggle(listId, first);
+  protected readonly onLists = computed(() => {
+    const copy = this.listCopy();
+    const on = copy === undefined ? [] : this.lists.listsOf(copy);
+    return this.lists
+      .lists()
+      .filter(list => on.includes(list.id!))
+      .map(list => ({ id: list.id!, name: list.name, icon: list.icon, tint: boxColor(list.color).front }));
+  });
+
+  protected async pickLists(): Promise<void> {
+    const ownedId = this.listCopy();
+    if (ownedId === undefined) return;
+    const { ListPickerComponent } = await import('../lists/list-picker.component');
+    const modal = await this.modals.create({
+      component: ListPickerComponent,
+      componentProps: { ownedId },
+      breakpoints: [0, 0.6, 1],
+      initialBreakpoint: 0.6,
+    });
+    await modal.present();
   }
 
   protected view(card: CatalogCard): Promise<void> {

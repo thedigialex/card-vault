@@ -1,5 +1,5 @@
 import { CatalogCard } from '../data/models';
-import { NameIndex, editDistance, normalizeName } from './name-match';
+import { NameIndex, editDistance, narrowByClues, normalizeName } from './name-match';
 
 const card = (number: string, name: string): CatalogCard => ({
   id: `palworld:${number}`,
@@ -54,5 +54,25 @@ describe('NameIndex', () => {
 
   it('ignores short words and unrelated text', () => {
     expect(index.find('Pal\nPower 1700\nStrike 4')).toEqual([]);
+  });
+});
+
+describe('narrowByClues', () => {
+  const both = [lamballA, lamballB];
+
+  it('keeps the card whose set code shows on the card', () => {
+    expect(narrowByClues('Lamball\nBP02 C', both)).toEqual([lamballB]);
+  });
+
+  it('uses a collector number of three digits or more', () => {
+    expect(narrowByClues('Lamball\n050', both)).toEqual([lamballA]);
+  });
+
+  it('ignores short numbers like power or HP', () => {
+    expect(narrowByClues('Lamball\nPower 10\n50', both)).toEqual(both);
+  });
+
+  it('keeps every card when nothing tells them apart', () => {
+    expect(narrowByClues('Lamball', both)).toEqual(both);
   });
 });

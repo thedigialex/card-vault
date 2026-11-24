@@ -1,12 +1,14 @@
 import { Injectable } from '@angular/core';
 
-export type ScanTone = 'found' | 'ready' | 'undo';
+export type ScanTone = 'found' | 'ready' | 'undo' | 'unsure';
 
-/** Short synthesized blips: two notes per tone, so the app ships no audio files. */
+/** Short synthesized blips, so the app ships no audio files. */
 const TONES: Record<ScanTone, number[]> = {
   found: [880, 1320],
   ready: [660, 660],
   undo: [520, 330],
+  // A down-up wobble, unlike any other tone, for "found it, but which one?".
+  unsure: [740, 494, 740],
 };
 
 @Injectable({ providedIn: 'root' })

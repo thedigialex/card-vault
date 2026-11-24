@@ -49,6 +49,30 @@ function phrasesOf(text: string): string[] {
   return [...phrases];
 }
 
+/** How strongly the text points at this card: its set code counts double, its collector number once. */
+function clueScore(card: CatalogCard, tokens: Set<string>): number {
+  const dash = card.number.lastIndexOf('-');
+  const codes = [card.setCode, card.number.slice(0, Math.max(dash, 0))].map(code => code.toUpperCase());
+  const collector = card.number.slice(dash + 1).toUpperCase();
+  const digits = /\d+$/.exec(collector)?.[0] ?? '';
+  let score = codes.some(code => code.length >= 2 && tokens.has(code)) ? 2 : 0;
+  // Three digits or more ("084"), so an HP or power value can't pass for a collector number.
+  if ((collector.length >= 3 && tokens.has(collector)) || (digits.length >= 3 && tokens.has(digits))) score += 1;
+  return score;
+}
+
+/**
+ * Of the cards sharing a name, the ones whose set code or collector number also shows in the text;
+ * all of them when nothing on the card tells them apart.
+ */
+export function narrowByClues(text: string, cards: CatalogCard[]): CatalogCard[] {
+  if (cards.length < 2) return cards;
+  const tokens = new Set(text.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean));
+  const scored = cards.map(card => ({ card, score: clueScore(card, tokens) }));
+  const best = Math.max(...scored.map(row => row.score));
+  return best ? scored.filter(row => row.score === best).map(row => row.card) : cards;
+}
+
 /** Finds cards by their printed name, for cards whose number is too small for the camera. */
 export class NameIndex {
   private readonly exact = new Map<string, CatalogCard[]>();

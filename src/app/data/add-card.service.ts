@@ -20,7 +20,7 @@ export class AddCardService {
     const { CardDetailComponent } = await import('../library/card-detail.component');
     const modal = await this.modals.create({
       component: CardDetailComponent,
-      componentProps: { card: entry.card, printingId: entry.owned.printingId, siblings },
+      componentProps: { card: entry.card, printingId: entry.owned.printingId, ownedId: entry.owned.id, siblings },
       breakpoints: [0, 0.8, 1],
       initialBreakpoint: 0.8,
     });
