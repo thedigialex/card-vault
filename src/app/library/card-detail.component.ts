@@ -23,7 +23,8 @@ import { registerListIcons } from '../lists/list-models';
 import { ListService } from '../lists/list.service';
 import { AddCardService } from '../data/add-card.service';
 import { CollectionService } from '../data/collection.service';
-import { CatalogCard, printingLabel } from '../data/models';
+import { CatalogCard, REGULAR_PRINTING, printingLabel } from '../data/models';
+import { NotifyService } from '../shared/notify.service';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
 
@@ -206,6 +207,7 @@ export class CardDetailComponent {
   private readonly collection = inject(CollectionService);
   private readonly boxes = inject(BoxService);
   private readonly adder = inject(AddCardService);
+  private readonly notify = inject(NotifyService);
   protected readonly prices = inject(PriceService);
   protected readonly lists = inject(ListService);
 
@@ -273,7 +275,14 @@ export class CardDetailComponent {
     return this.adder.view(card, this.siblings);
   }
 
+  /** Same printing as the copy tapped; a copy in a hand-sorted box gets its twin filed beside it. */
   protected async addAnother(card: CatalogCard): Promise<void> {
-    await this.adder.add(card, true);
+    const tapped = this.ownedId ?? this.listCopy();
+    const printingId =
+      this.printingId ?? this.collection.entriesByOwned().get(tapped ?? -1)?.owned.printingId ?? REGULAR_PRINTING;
+    const ownedId = await this.collection.add(card, printingId);
+    const boxId = tapped === undefined ? undefined : this.boxes.locationOf(tapped)?.boxId;
+    if (boxId !== undefined && !this.boxes.boxById(boxId)?.autoSort) await this.boxes.fileInto([ownedId], boxId);
+    await this.notify.show(`Added another ${card.name} (${printingLabel(card, printingId)})`, 1400);
   }
 }

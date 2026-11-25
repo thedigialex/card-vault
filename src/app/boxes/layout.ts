@@ -12,6 +12,8 @@ export interface Box {
   color: string;
   /** Sorted boxes fill themselves from the library; hand-sorted ones keep whatever was dragged in. */
   autoSort: boolean;
+  /** A card-sort id; a sorted box takes and arranges its cards by it. Missing = set order. */
+  sortBy?: string;
 }
 
 /** Where a card sits: confirmed moves for a sorted box, the arrangement itself for a hand-sorted one. */
@@ -63,9 +65,15 @@ function emptyRows(box: Box): LayoutRow[] {
 
 /**
  * `cards` must already be in library order (game, then set, then number). Hand-sorted boxes keep the
- * arrangement in `placements`; sorted boxes then fill themselves, in box order, from whatever is left.
+ * arrangement in `placements`; sorted boxes then fill themselves, in box order, from whatever is left,
+ * in the order `arrange` puts that leftover in (a box sorted by price takes the priciest cards).
  */
-export function computeLayout(boxes: Box[], cards: LayoutCard[], placements = new Map<number, Placement>()): Layout {
+export function computeLayout(
+  boxes: Box[],
+  cards: LayoutCard[],
+  placements = new Map<number, Placement>(),
+  arrange: (box: Box, cards: LayoutCard[]) => LayoutCard[] = (_, cards) => cards,
+): Layout {
   const ordered = [...boxes].sort(byOrder);
   const known = new Set(cards.map(card => card.id));
   const claimed = new Set<number>();
@@ -86,7 +94,7 @@ export function computeLayout(boxes: Box[], cards: LayoutCard[], placements = ne
 
   for (const box of ordered.filter(box => box.autoSort)) {
     const rows = rowsByBox.get(box.id!)!;
-    const fits = cards.filter(card => !claimed.has(card.id) && (!box.game || box.game === card.game));
+    const fits = arrange(box, cards.filter(card => !claimed.has(card.id) && (!box.game || box.game === card.game)));
     let next = 0;
     for (const row of rows) {
       const ownedIds = fits.slice(next, next + box.rowCapacity).map(card => card.id);

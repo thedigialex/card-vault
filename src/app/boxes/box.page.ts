@@ -11,6 +11,8 @@ import {
   IonIcon,
   IonSegment,
   IonSegmentButton,
+  IonSelect,
+  IonSelectOption,
   IonTitle,
   IonToolbar,
   ModalController,
@@ -20,9 +22,12 @@ import { toggled } from '../shared/toggled';
 import { chevronDown, chevronForward, createOutline } from 'ionicons/icons';
 
 import { AddCardService } from '../data/add-card.service';
+import { DEFAULT_SORT, SortId, sortLabel, sortOptionsFor, sortValue } from '../data/card-sort';
 import { NotifyService } from '../shared/notify.service';
-import { LibraryEntry } from '../data/collection.service';
-import { rarityClass } from '../data/models';
+import { CollectionService, LibraryEntry } from '../data/collection.service';
+import { CatalogCard, rarityClass } from '../data/models';
+import { stacksOf } from '../data/stacks';
+import { PriceService } from '../prices/price.service';
 import { ListMarksComponent } from '../lists/list-marks.component';
 import { MoneyPipe } from '../prices/money.pipe';
 import { Box3dComponent } from './box-3d.component';
@@ -33,11 +38,34 @@ import { BoxDraft, BoxService } from './box.service';
 /** A drop list holds its row number; UNBOXED means the loose pile. */
 const UNBOXED = -1;
 
+interface Slot {
+  entry: LibraryEntry;
+  ids: number[];
+  rarity: string;
+  /** "4", "4–6" for copies side by side, or "4, 9" when they sit apart. */
+  position: string;
+}
+
+/** Every copy in a row shares one tile, wherever in the row the copies sit. */
+function slotsOf(entries: LibraryEntry[]): Slot[] {
+  const numbered = entries.map((entry, index) => ({ entry, slot: index + 1 }));
+  return stacksOf(numbered, item => item.entry, false).map(stack => {
+    const slots = stack.items.map(item => item.slot);
+    const run = slots.every((slot, i) => i === 0 || slot === slots[i - 1] + 1);
+    return {
+      entry: stack.items[0].entry,
+      ids: stack.items.map(item => item.entry.owned.id!),
+      rarity: rarityClass(stack.items[0].entry.card),
+      position: slots.length === 1 ? `${slots[0]}` : run ? `${slots[0]}–${slots.at(-1)}` : slots.join(', '),
+    };
+  });
+}
+
 @Component({
   selector: 'app-box',
   imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, IonSegment,
-    IonSegmentButton, Box3dComponent,
+    IonSegmentButton, IonSelect, IonSelectOption, Box3dComponent,
     CdkDropListGroup, CdkDropList, CdkDrag, ListMarksComponent, MoneyPipe,
   ],
   template: `
@@ -85,9 +113,19 @@ const UNBOXED = -1;
             <ion-segment-button value="auto">Auto sort</ion-segment-button>
             <ion-segment-button value="hand">By hand</ion-segment-button>
           </ion-segment>
-          <p>
-            {{ box.autoSort ? 'Cards are filed in set order.' : 'Hold a card, then drag it to another ' + rowName(false) + ' or the pile.' }}
-          </p>
+          <ion-select
+            class="sort"
+            [label]="box.autoSort ? 'Arrange by' : 'Arrange once by'"
+            interface="action-sheet"
+            [interfaceOptions]="{ header: box.autoSort ? 'Arrange this box by' : 'Rearrange every ' + rowName(false) + ' by' }"
+            [value]="box.sortBy ?? 'set'"
+            (ionChange)="sortBy($event.detail.value)"
+          >
+            @for (option of sortOptions(); track option.id) {
+              <ion-select-option [value]="option.id">{{ option.label }}</ion-select-option>
+            }
+          </ion-select>
+          <p>{{ hint() }}</p>
         </div>
 
         <div cdkDropListGroup>
@@ -99,8 +137,8 @@ const UNBOXED = -1;
                 <p>{{ row.range || 'Empty' }}</p>
               </div>
               <div class="row-fill">
-                <span>{{ row.entries.length }}/{{ box.rowCapacity }}</span>
-                <div class="fill-bar"><span [style.width.%]="(row.entries.length / box.rowCapacity) * 100"></span></div>
+                <span>{{ row.used }}/{{ box.rowCapacity }}</span>
+                <div class="fill-bar"><span [style.width.%]="(row.used / box.rowCapacity) * 100"></span></div>
               </div>
             </button>
             @if (open().has(row.row)) {
@@ -112,18 +150,21 @@ const UNBOXED = -1;
                 [cdkDropListDisabled]="box.autoSort"
                 (cdkDropListDropped)="dropped($event)"
               >
-                @for (slot of row.entries; track slot.entry.owned.id; let i = $index) {
+                @for (slot of row.slots; track slot.ids[0]) {
                   <div
                     class="card-tile"
                     [class]="slot.rarity"
                     cdkDrag
-                    [cdkDragData]="slot.entry.owned.id"
+                    [cdkDragData]="slot.ids"
                     [cdkDragStartDelay]="dragDelay"
-                    (click)="inspect(slot.entry, row.entries)"
+                    (click)="inspect(slot.entry, row.slots)"
                   >
                     <img [cardSrc]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
+                    @if (slot.ids.length > 1) {
+                      <span class="tile-badge">{{ slot.ids.length }}</span>
+                    }
                     <app-list-marks [ownedId]="slot.entry.owned.id" />
-                    <span class="tile-caption"><b>{{ i + 1 }}</b> {{ slot.entry.card.number }}</span>
+                    <span class="tile-caption"><b>{{ slot.position }}</b> {{ slot.entry.card.number }}</span>
                   </div>
                 } @empty {
                   <p class="drop-hint">Drop cards here</p>
@@ -135,7 +176,7 @@ const UNBOXED = -1;
           @if (!box.autoSort) {
             <div class="section-head pile-head">
               <h2>Unboxed pile</h2>
-              <span>{{ pile().length }}</span>
+              <span>{{ boxes.unboxed().length }}</span>
             </div>
             <div
               class="card-grid drop pile"
@@ -144,16 +185,19 @@ const UNBOXED = -1;
               [cdkDropListData]="unboxed"
               (cdkDropListDropped)="dropped($event)"
             >
-              @for (slot of pile(); track slot.entry.owned.id) {
+              @for (slot of pile(); track slot.ids[0]) {
                 <div
                   class="card-tile"
                   [class]="slot.rarity"
                   cdkDrag
-                  [cdkDragData]="slot.entry.owned.id"
+                  [cdkDragData]="slot.ids"
                   [cdkDragStartDelay]="dragDelay"
                   (click)="inspect(slot.entry, pile())"
                 >
                   <img [cardSrc]="slot.entry.card.image" [alt]="slot.entry.card.name" loading="lazy" />
+                  @if (slot.ids.length > 1) {
+                    <span class="tile-badge">{{ slot.ids.length }}</span>
+                  }
                   <app-list-marks [ownedId]="slot.entry.owned.id" />
                   <span class="tile-caption">{{ slot.entry.card.number }}</span>
                 </div>
@@ -189,6 +233,14 @@ const UNBOXED = -1;
     }
     .mode {
       margin: 12px 16px 8px;
+      .sort {
+        margin-top: 10px;
+        padding: 2px 14px;
+        border-radius: var(--vault-radius);
+        border: 1px solid var(--vault-panel-edge);
+        background: var(--vault-panel);
+        font-size: 14px;
+      }
       p {
         margin: 8px 2px 0;
         font-size: 12px;
@@ -275,7 +327,9 @@ const UNBOXED = -1;
   `,
 })
 export class BoxPage {
-  private readonly boxes = inject(BoxService);
+  protected readonly boxes = inject(BoxService);
+  private readonly collection = inject(CollectionService);
+  private readonly prices = inject(PriceService);
   private readonly cards = inject(AddCardService);
   private readonly modals = inject(ModalController);
   private readonly notify = inject(NotifyService);
@@ -288,24 +342,59 @@ export class BoxPage {
   protected readonly shape = computed(() => this.stats().shape);
   protected readonly open = signal(new Set<number>([0]));
 
-  protected readonly rows = computed(() =>
-    this.boxes.rowsOf(Number(this.id())).map(row => {
+  private readonly priceOf = (card: CatalogCard) => this.prices.priceOf(card);
+
+  protected readonly rows = computed(() => {
+    const box = this.box();
+    // A hand-sorted row isn't in any sort order, so its heading names the card numbers.
+    const sortBy = box?.autoSort ? box.sortBy : undefined;
+    return this.boxes.rowsOf(Number(this.id())).map(row => {
       const entries = row.ownedIds
         .map(id => this.boxes.entry(id))
-        .filter((entry): entry is LibraryEntry => !!entry)
-        .map(entry => ({ entry, rarity: rarityClass(entry.card) }));
-      const first = entries.at(0)?.entry.card.number;
-      const last = entries.at(-1)?.entry.card.number;
-      return { row: row.row, entries, range: first ? (first === last ? first : `${first} – ${last}`) : '' };
-    }),
-  );
+        .filter((entry): entry is LibraryEntry => !!entry);
+      const first = entries.at(0) && sortValue(sortBy, entries[0].card, this.priceOf);
+      const last = entries.at(-1) && sortValue(sortBy, entries.at(-1)!.card, this.priceOf);
+      return {
+        row: row.row,
+        used: entries.length,
+        slots: slotsOf(entries),
+        range: first ? (first === last ? first : `${first} – ${last}`) : '',
+      };
+    });
+  });
 
-  protected readonly pile = computed(() =>
-    this.boxes.unboxed().map(entry => ({ entry, rarity: rarityClass(entry.card) })),
-  );
+  protected readonly pile = computed(() => slotsOf(this.boxes.unboxed()));
+
+  protected readonly sortOptions = computed(() => {
+    const game = this.box()?.game;
+    const cards = new Map<string, CatalogCard>();
+    for (const { card } of this.collection.entries()) if (!game || card.game === game) cards.set(card.id, card);
+    return sortOptionsFor([...cards.values()]);
+  });
+
+  protected readonly hint = computed(() => {
+    const box = this.box();
+    if (!box) return '';
+    if (!box.autoSort) return `Hold a card, then drag it to another ${this.rowName(false)} or the pile.`;
+    const sortBy = box.sortBy ?? DEFAULT_SORT;
+    if (sortBy === DEFAULT_SORT) return 'Cards are filed in set order.';
+    const words = ['name', 'color', 'type'].includes(sortBy) ? 'A to Z' : sortBy === 'added' ? 'newest first' : 'highest first';
+    return `Takes and files cards by ${sortLabel(sortBy).toLowerCase()}, ${words}.`;
+  });
 
   constructor() {
     addIcons({ chevronDown, chevronForward, createOutline });
+  }
+
+  protected async sortBy(sortBy: SortId): Promise<void> {
+    const box = this.box();
+    if (!box || (box.autoSort && (box.sortBy ?? DEFAULT_SORT) === sortBy)) return;
+    await this.boxes.sortBox(box.id!, sortBy);
+    const label = sortLabel(sortBy).toLowerCase();
+    await this.notify.show(
+      box.autoSort ? `Arranged by ${label}. Check the move list to shuffle the real box.` : `Rearranged by ${label}. Drag to fine-tune.`,
+      2000,
+    );
   }
 
   protected rowName(plural: boolean): string {
@@ -328,21 +417,27 @@ export class BoxPage {
     await this.notify.show(autoSort ? 'Sorting this box by set order.' : 'Drag cards to arrange this box.', 1600);
   }
 
+  /** A tile is a whole stack of copies, so the drop index counts tiles and the slot counts cards. */
   protected async dropped(event: CdkDragDrop<number>): Promise<void> {
-    const ownedId = event.item.data as number;
+    const ownedIds = event.item.data as number[];
     const target = event.container.data;
     if (target === UNBOXED) {
-      await this.boxes.unbox(ownedId);
+      if (event.previousContainer !== event.container) await this.boxes.unbox(ownedIds);
       return;
     }
     const box = this.box();
-    if (!box) return;
-    const full = this.rows().find(row => row.row === target)?.entries.length ?? 0;
-    if (event.previousContainer !== event.container && full >= box.rowCapacity) {
-      await this.notify.show(`That ${this.rowName(false)} is full.`, 1400);
+    const row = this.rows().find(r => r.row === target);
+    if (!box || !row) return;
+    if (event.previousContainer !== event.container && row.used + ownedIds.length > box.rowCapacity) {
+      await this.notify.show(`That ${this.rowName(false)} doesn't have room for ${ownedIds.length > 1 ? 'all of them' : 'it'}.`, 1400);
       return;
     }
-    await this.boxes.place(ownedId, box.id!, target, event.currentIndex);
+    // Lands just before the first copy of whichever tile now sits after it.
+    const moving = new Set(ownedIds);
+    const order = (this.boxes.rowsOf(box.id!).find(r => r.row === target)?.ownedIds ?? []).filter(id => !moving.has(id));
+    const after = row.slots.filter(slot => slot.ids[0] !== ownedIds[0])[event.currentIndex];
+    const position = after ? order.indexOf(after.ids[0]) : order.length;
+    await this.boxes.place(ownedIds, box.id!, target, position);
   }
 
   /** A drag swallows its own click, so this only fires on a real tap. */

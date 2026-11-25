@@ -1,7 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 
+import { DEFAULT_SORT, SortId, sortEntries } from '../data/card-sort';
 import { CollectionService, LibraryEntry } from '../data/collection.service';
 import { VaultDb } from '../data/db';
+import { CatalogCard } from '../data/models';
+import { copyKey } from '../data/stacks';
 import { PriceService } from '../prices/price.service';
 import { BoxShape, boxModel, rowTitle, rowWord } from './box-models';
 import {
@@ -49,13 +52,18 @@ export class BoxService {
 
   readonly entriesById = computed(() => new Map(this.collection.entries().map(e => [e.owned.id!, e])));
 
-  readonly layout = computed<Layout>(() =>
-    computeLayout(
+  readonly layout = computed<Layout>(() => {
+    const byId = this.entriesById();
+    const priceOf = (card: CatalogCard) => this.prices.priceOf(card);
+    return computeLayout(
       this.boxes(),
       this.collection.entries().map(e => ({ id: e.owned.id!, game: e.owned.game })),
       this.placements(),
-    ),
-  );
+      // Cards already arrive in set order, so only other sorts need the work.
+      (box, cards) =>
+        !box.sortBy || box.sortBy === DEFAULT_SORT ? cards : sortEntries(cards, box.sortBy, priceOf, card => byId.get(card.id)!),
+    );
+  });
 
   readonly moves = computed<Move[]>(() => movesFor(this.layout(), this.placements()));
 
@@ -175,18 +183,19 @@ export class BoxService {
     await this.db.placements.bulkPut(placements);
   }
 
-  /** Drops a card into a hand-sorted row at `position`, taking it out of wherever it was. */
-  async place(ownedId: number, boxId: number, row: number, position: number): Promise<void> {
+  /** Drops cards (a stack of copies moves together) into a hand-sorted row at `position`. */
+  async place(ownedIds: number[], boxId: number, row: number, position: number): Promise<void> {
     const target = this.rowsOf(boxId).find(r => r.row === row);
     const box = this.boxById(boxId);
     if (!target || !box) return;
 
-    const ids = target.ownedIds.filter(id => id !== ownedId);
-    ids.splice(Math.max(0, Math.min(position, ids.length)), 0, ownedId);
+    const moving = new Set(ownedIds);
+    const ids = target.ownedIds.filter(id => !moving.has(id));
+    ids.splice(Math.max(0, Math.min(position, ids.length)), 0, ...ownedIds);
     const kept = ids.slice(0, box.rowCapacity);
 
     await this.db.transaction('rw', this.db.placements, async () => {
-      await this.db.placements.delete(ownedId);
+      await this.db.placements.bulkDelete(ownedIds);
       await this.db.placements.bulkPut(
         kept.map((id, index) => ({ ownedId: id, boxId, row, position: index })),
       );
@@ -196,18 +205,62 @@ export class BoxService {
     await this.reload();
   }
 
-  async unbox(ownedId: number): Promise<void> {
-    await this.db.placements.delete(ownedId);
+  async unbox(ownedIds: number[]): Promise<void> {
+    await this.db.placements.bulkDelete(ownedIds);
     await this.reload();
   }
 
-  /** Puts a card in the first hand-sorted row with room, used when a scan targets a box. */
-  async fileInto(ownedId: number, boxId: number): Promise<boolean> {
+  /**
+   * Files cards into a hand-sorted box: right behind a copy already in it when that row has room, so copies
+   * stack, else at the end of the first row with room. Returns how many fit.
+   */
+  async fileInto(ownedIds: number[], boxId: number): Promise<number> {
     const box = this.boxById(boxId);
-    if (!box) return false;
-    const row = this.rowsOf(boxId).find(r => r.ownedIds.length < box.rowCapacity);
-    if (!row) return false;
-    await this.place(ownedId, boxId, row.row, row.ownedIds.length);
-    return true;
+    let filed = 0;
+    for (const ownedId of ownedIds) {
+      if (!box) break;
+      const key = this.copyKeyOf(ownedId);
+      const rows = this.rowsOf(boxId).filter(r => r.ownedIds.length < box.rowCapacity);
+      const twinRow = rows.find(r => r.ownedIds.some(id => id !== ownedId && this.copyKeyOf(id) === key));
+      const row = twinRow ?? rows[0];
+      if (!row) break;
+      const lastTwin = twinRow ? row.ownedIds.map(id => this.copyKeyOf(id)).lastIndexOf(key) : -1;
+      await this.place([ownedId], boxId, row.row, lastTwin >= 0 ? lastTwin + 1 : row.ownedIds.length);
+      filed++;
+    }
+    return filed;
+  }
+
+  private copyKeyOf(ownedId: number): string | undefined {
+    const entry = this.entry(ownedId);
+    return entry && copyKey(entry);
+  }
+
+  /**
+   * Sorted boxes re-file themselves from `sortBy`; a hand-sorted box is rearranged once, row by row,
+   * and stays hand-sorted so the user can fine-tune it.
+   */
+  async sortBox(boxId: number, sortBy: SortId): Promise<void> {
+    const box = this.boxById(boxId);
+    if (!box) return;
+    if (box.autoSort) {
+      await this.db.boxes.update(boxId, { sortBy });
+      await this.reload();
+      return;
+    }
+    const byId = this.entriesById();
+    const ids = this.rowsOf(boxId).flatMap(row => row.ownedIds);
+    const sorted = sortEntries(ids, sortBy, card => this.prices.priceOf(card), ownedId => byId.get(ownedId)!);
+    const placements: Placement[] = sorted.map((ownedId, index) => ({
+      ownedId,
+      boxId,
+      row: Math.floor(index / box.rowCapacity),
+      position: index % box.rowCapacity,
+    }));
+    await this.db.transaction('rw', this.db.boxes, this.db.placements, async () => {
+      await this.db.boxes.update(boxId, { sortBy });
+      await this.db.placements.bulkPut(placements);
+    });
+    await this.reload();
   }
 }

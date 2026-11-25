@@ -1,10 +1,10 @@
 import { CardSrcDirective } from '../shared/card-src.directive';
 import { DecimalPipe } from '@angular/common';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
-import { IonIcon } from '@ionic/angular';
+import { IonIcon, ModalController } from '@ionic/angular';
 import { addIcons } from 'ionicons';
 import { toggled } from '../shared/toggled';
-import { chevronDown, trophy } from 'ionicons/icons';
+import { chevronDown, gift, trophy } from 'ionicons/icons';
 
 import { AddCardService } from '../data/add-card.service';
 import { CatalogService } from '../data/catalog.service';
@@ -109,6 +109,10 @@ function titleOf(setCode: string, setName: string): string {
       </button>
 
       @if (open) {
+        <button class="rip" (click)="ripPack(set)">
+          <ion-icon name="gift" />
+          <span><b>Rip a {{ set.setCode }} pack</b><small>Just for fun — random pulls from this set</small></span>
+        </button>
         <div class="card-grid">
           @for (card of set.visible; track card.id) {
             @let count = counts().get(card.id) ?? 0;
@@ -331,6 +335,38 @@ function titleOf(setCode: string, setName: string): string {
     .card-grid {
       gap: 8px;
     }
+
+    .rip {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: calc(100% - 24px);
+      margin: 10px 12px 0;
+      padding: 10px 14px;
+      border: 1px solid rgb(168 85 247 / 0.45);
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgb(91 124 250 / 0.18), rgb(168 85 247 / 0.18));
+      color: inherit;
+      font: inherit;
+      text-align: left;
+
+      ion-icon {
+        flex-shrink: 0;
+        font-size: 22px;
+        color: #c38bff;
+      }
+      b {
+        display: block;
+        font-size: 14px;
+      }
+      small {
+        font-size: 12px;
+        color: var(--ion-color-medium);
+      }
+    }
+    .rip + .card-grid {
+      padding-top: 12px;
+    }
   `,
 })
 export class CatalogBrowserComponent {
@@ -338,6 +374,7 @@ export class CatalogBrowserComponent {
   private readonly collection = inject(CollectionService);
   private readonly prices = inject(PriceService);
   protected readonly adder = inject(AddCardService);
+  private readonly modals = inject(ModalController);
 
   readonly gameId = input.required<string>();
 
@@ -399,7 +436,7 @@ export class CatalogBrowserComponent {
   });
 
   constructor() {
-    addIcons({ chevronDown, trophy });
+    addIcons({ chevronDown, gift, trophy });
     // Another game's open sets mean nothing here.
     effect(() => {
       this.gameId();
@@ -415,6 +452,15 @@ export class CatalogBrowserComponent {
   }
 
   protected readonly rarity = rarityClass;
+
+  protected async ripPack(set: CatalogSet): Promise<void> {
+    const { PackOpeningComponent } = await import('../packs/pack-opening.component');
+    const modal = await this.modals.create({
+      component: PackOpeningComponent,
+      componentProps: { gameId: this.gameId(), setCode: set.setCode, title: set.title, cards: set.cards },
+    });
+    await modal.present();
+  }
 
   protected collapseAll(): void {
     this.expanded.set(new Set());

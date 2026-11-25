@@ -924,7 +924,7 @@ export class ScanPage {
   private async addCopy(card: CatalogCard, printingId: string): Promise<void> {
     const ownedId = await this.collection.add(card, printingId);
     const boxId = this.targetBox();
-    if (boxId) await this.boxes.fileInto(ownedId, boxId);
+    if (boxId) await this.boxes.fileInto([ownedId], boxId);
     this.added.update(list => [{ card, ownedId }, ...list]);
   }
 

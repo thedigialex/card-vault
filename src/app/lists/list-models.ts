@@ -9,6 +9,8 @@ export interface CardList {
   icon: string;
   order: number;
   createdAt: number;
+  /** A card-sort id for viewing the list; missing = set order. */
+  sortBy?: string;
 }
 
 export interface ListEntry {
