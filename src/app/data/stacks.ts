@@ -10,6 +10,12 @@ export function copyKey(entry: LibraryEntry): string {
   return `${entry.owned.cardId}|${entry.owned.printingId}`;
 }
 
+/** "4", "4–6" for slots side by side, or "4, 9" (with `joiner` between) when they sit apart. */
+export function slotRange(slots: number[], joiner = ', '): string {
+  const run = slots.every((slot, i) => i === 0 || slot === slots[i - 1] + 1);
+  return slots.length > 1 && run ? `${slots[0]}–${slots.at(-1)}` : slots.join(joiner);
+}
+
 /**
  * Collapses copies into one tile. `adjacentOnly` keeps a box row honest: copies that sit apart in a
  * hand-sorted row stay apart, because that is where they physically are.

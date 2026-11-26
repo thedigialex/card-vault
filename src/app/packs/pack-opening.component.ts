@@ -165,7 +165,7 @@ const SPARKS = Array.from({ length: 22 }, (_, i) => ({
                   @if (!owned(card)) {
                     <b class="new">NEW</b>
                   }
-                  @if (price(card); as value) {
+                  @if (prices.priceOf(card); as value) {
                     <b class="price">{{ value | money }}</b>
                   }
                 </span>
@@ -913,7 +913,7 @@ const SPARKS = Array.from({ length: 22 }, (_, i) => ({
 export class PackOpeningComponent implements OnInit {
   private readonly modals = inject(ModalController);
   private readonly collection = inject(CollectionService);
-  private readonly prices = inject(PriceService);
+  protected readonly prices = inject(PriceService);
   private readonly viewer = inject(AddCardService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -975,13 +975,8 @@ export class PackOpeningComponent implements OnInit {
     this.pulls.set(openPack(this.cards, this.size));
   }
 
-  protected tierOf(card: CatalogCard): RarityTier {
-    return rarityTier(card);
-  }
-
-  protected rarityClassOf(card: CatalogCard): string {
-    return rarityClass(card);
-  }
+  protected readonly tierOf = rarityTier;
+  protected readonly rarityClassOf = rarityClass;
 
   protected dotClass(card: CatalogCard, i: number): string {
     if (i === this.index()) return 'now';
@@ -990,10 +985,6 @@ export class PackOpeningComponent implements OnInit {
 
   protected owned(card: CatalogCard): boolean {
     return this.collection.countsByCard().has(card.id);
-  }
-
-  protected price(card: CatalogCard): number | undefined {
-    return this.prices.priceOf(card);
   }
 
   protected tearStart(event: PointerEvent): void {

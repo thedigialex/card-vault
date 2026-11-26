@@ -44,9 +44,8 @@ export class PriceService {
     this.loaded.set(true);
   }
 
-  priceOf(card: Priceable): number | undefined {
-    return this.markets().get(priceKey(card.game, card.number));
-  }
+  /** An arrow, so sorters can take it as a plain function. */
+  readonly priceOf = (card: Priceable): number | undefined => this.markets().get(priceKey(card.game, card.number));
 
   rowFor(card: Priceable): PriceRow | undefined {
     return this.rows().get(priceKey(card.game, card.number));

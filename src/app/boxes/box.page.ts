@@ -11,8 +11,6 @@ import {
   IonIcon,
   IonSegment,
   IonSegmentButton,
-  IonSelect,
-  IonSelectOption,
   IonTitle,
   IonToolbar,
   ModalController,
@@ -24,9 +22,10 @@ import { chevronDown, chevronForward, createOutline } from 'ionicons/icons';
 import { AddCardService } from '../data/add-card.service';
 import { DEFAULT_SORT, SortId, sortLabel, sortOptionsFor, sortValue } from '../data/card-sort';
 import { NotifyService } from '../shared/notify.service';
+import { SortSelectComponent } from '../shared/sort-select.component';
 import { CollectionService, LibraryEntry } from '../data/collection.service';
 import { CatalogCard, rarityClass } from '../data/models';
-import { stacksOf } from '../data/stacks';
+import { slotRange, stacksOf } from '../data/stacks';
 import { PriceService } from '../prices/price.service';
 import { ListMarksComponent } from '../lists/list-marks.component';
 import { MoneyPipe } from '../prices/money.pipe';
@@ -50,13 +49,11 @@ interface Slot {
 function slotsOf(entries: LibraryEntry[]): Slot[] {
   const numbered = entries.map((entry, index) => ({ entry, slot: index + 1 }));
   return stacksOf(numbered, item => item.entry, false).map(stack => {
-    const slots = stack.items.map(item => item.slot);
-    const run = slots.every((slot, i) => i === 0 || slot === slots[i - 1] + 1);
     return {
       entry: stack.items[0].entry,
       ids: stack.items.map(item => item.entry.owned.id!),
       rarity: rarityClass(stack.items[0].entry.card),
-      position: slots.length === 1 ? `${slots[0]}` : run ? `${slots[0]}–${slots.at(-1)}` : slots.join(', '),
+      position: slotRange(stack.items.map(item => item.slot)),
     };
   });
 }
@@ -65,7 +62,7 @@ function slotsOf(entries: LibraryEntry[]): Slot[] {
   selector: 'app-box',
   imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, IonSegment,
-    IonSegmentButton, IonSelect, IonSelectOption, Box3dComponent,
+    IonSegmentButton, Box3dComponent, SortSelectComponent,
     CdkDropListGroup, CdkDropList, CdkDrag, ListMarksComponent, MoneyPipe,
   ],
   template: `
@@ -113,18 +110,14 @@ function slotsOf(entries: LibraryEntry[]): Slot[] {
             <ion-segment-button value="auto">Auto sort</ion-segment-button>
             <ion-segment-button value="hand">By hand</ion-segment-button>
           </ion-segment>
-          <ion-select
+          <app-sort-select
             class="sort"
             [label]="box.autoSort ? 'Arrange by' : 'Arrange once by'"
-            interface="action-sheet"
-            [interfaceOptions]="{ header: box.autoSort ? 'Arrange this box by' : 'Rearrange every ' + rowName(false) + ' by' }"
-            [value]="box.sortBy ?? 'set'"
-            (ionChange)="sortBy($event.detail.value)"
-          >
-            @for (option of sortOptions(); track option.id) {
-              <ion-select-option [value]="option.id">{{ option.label }}</ion-select-option>
-            }
-          </ion-select>
+            [header]="box.autoSort ? 'Arrange this box by' : 'Rearrange every ' + rowName(false) + ' by'"
+            [value]="box.sortBy"
+            [options]="sortOptions()"
+            (picked)="sortBy($event)"
+          />
           <p>{{ hint() }}</p>
         </div>
 
@@ -235,11 +228,6 @@ function slotsOf(entries: LibraryEntry[]): Slot[] {
       margin: 12px 16px 8px;
       .sort {
         margin-top: 10px;
-        padding: 2px 14px;
-        border-radius: var(--vault-radius);
-        border: 1px solid var(--vault-panel-edge);
-        background: var(--vault-panel);
-        font-size: 14px;
       }
       p {
         margin: 8px 2px 0;
@@ -342,8 +330,6 @@ export class BoxPage {
   protected readonly shape = computed(() => this.stats().shape);
   protected readonly open = signal(new Set<number>([0]));
 
-  private readonly priceOf = (card: CatalogCard) => this.prices.priceOf(card);
-
   protected readonly rows = computed(() => {
     const box = this.box();
     // A hand-sorted row isn't in any sort order, so its heading names the card numbers.
@@ -352,8 +338,8 @@ export class BoxPage {
       const entries = row.ownedIds
         .map(id => this.boxes.entry(id))
         .filter((entry): entry is LibraryEntry => !!entry);
-      const first = entries.at(0) && sortValue(sortBy, entries[0].card, this.priceOf);
-      const last = entries.at(-1) && sortValue(sortBy, entries.at(-1)!.card, this.priceOf);
+      const first = entries.at(0) && sortValue(sortBy, entries[0].card, this.prices.priceOf);
+      const last = entries.at(-1) && sortValue(sortBy, entries.at(-1)!.card, this.prices.priceOf);
       return {
         row: row.row,
         used: entries.length,

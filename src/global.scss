@@ -441,19 +441,20 @@ ion-tab-button ion-icon {
   font-weight: 600;
 }
 
-/* A pill you can tap to switch on, tinted by --tint. */
+/* A pill that's switched on, tinted by --tint. */
+.pill.on {
+  border-color: var(--tint);
+  background: color-mix(in srgb, var(--tint) 26%, transparent);
+  color: var(--ion-text-color);
+}
+
+/* A pill you can tap to switch on. */
 button.pill {
   padding: 7px 12px;
   font-size: 13px;
 
   ion-icon {
     font-size: 15px;
-  }
-
-  &.on {
-    border-color: var(--tint);
-    background: color-mix(in srgb, var(--tint) 26%, transparent);
-    color: var(--ion-text-color);
   }
 }
 

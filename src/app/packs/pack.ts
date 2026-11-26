@@ -48,7 +48,9 @@ function bucketsOf(cards: CatalogCard[]): Bucket[] {
   const byRank = new Map<number, CatalogCard[]>();
   for (const card of cards) {
     const rank = rarityRank(card);
-    byRank.set(rank, [...(byRank.get(rank) ?? []), card]);
+    const bucket = byRank.get(rank);
+    if (bucket) bucket.push(card);
+    else byRank.set(rank, [card]);
   }
   return [...byRank].map(([rank, cards]) => ({ rank, cards })).sort((a, b) => a.rank - b.rank);
 }

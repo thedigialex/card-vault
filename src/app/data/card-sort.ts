@@ -1,4 +1,5 @@
 import { LibraryEntry } from './collection.service';
+import { formatPrice } from '../prices/prices';
 import { CatalogCard, rarityTier } from './models';
 
 /** 'set' | 'name' | 'rarity' | 'color' | 'type' | 'price' | 'added' | `stat:<label>` */
@@ -137,7 +138,7 @@ export function sortValue(id: SortId | undefined, card: CatalogCard, priceOf: Pr
       return card.type || '—';
     case 'price': {
       const price = priceOf(card);
-      return price === undefined ? 'No price' : `$${price.toFixed(2)}`;
+      return price === undefined ? 'No price' : formatPrice(price);
     }
     default:
       return card.number;

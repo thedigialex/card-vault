@@ -182,11 +182,6 @@ import { PriceService } from '../prices/price.service';
       flex-wrap: wrap;
       gap: 6px;
     }
-    .pill.on {
-      border-color: var(--tint);
-      background: color-mix(in srgb, var(--tint) 26%, transparent);
-      color: var(--ion-text-color);
-    }
     .none {
       font-size: 13px;
       color: var(--ion-color-medium);

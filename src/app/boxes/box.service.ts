@@ -3,7 +3,6 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { DEFAULT_SORT, SortId, sortEntries } from '../data/card-sort';
 import { CollectionService, LibraryEntry } from '../data/collection.service';
 import { VaultDb } from '../data/db';
-import { CatalogCard } from '../data/models';
 import { copyKey } from '../data/stacks';
 import { PriceService } from '../prices/price.service';
 import { BoxShape, boxModel, rowTitle, rowWord } from './box-models';
@@ -54,14 +53,13 @@ export class BoxService {
 
   readonly layout = computed<Layout>(() => {
     const byId = this.entriesById();
-    const priceOf = (card: CatalogCard) => this.prices.priceOf(card);
     return computeLayout(
       this.boxes(),
       this.collection.entries().map(e => ({ id: e.owned.id!, game: e.owned.game })),
       this.placements(),
       // Cards already arrive in set order, so only other sorts need the work.
       (box, cards) =>
-        !box.sortBy || box.sortBy === DEFAULT_SORT ? cards : sortEntries(cards, box.sortBy, priceOf, card => byId.get(card.id)!),
+        !box.sortBy || box.sortBy === DEFAULT_SORT ? cards : sortEntries(cards, box.sortBy, this.prices.priceOf, card => byId.get(card.id)!),
     );
   });
 
@@ -250,7 +248,7 @@ export class BoxService {
     }
     const byId = this.entriesById();
     const ids = this.rowsOf(boxId).flatMap(row => row.ownedIds);
-    const sorted = sortEntries(ids, sortBy, card => this.prices.priceOf(card), ownedId => byId.get(ownedId)!);
+    const sorted = sortEntries(ids, sortBy, this.prices.priceOf, ownedId => byId.get(ownedId)!);
     const placements: Placement[] = sorted.map((ownedId, index) => ({
       ownedId,
       boxId,

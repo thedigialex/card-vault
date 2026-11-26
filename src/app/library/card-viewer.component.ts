@@ -21,6 +21,12 @@ import { PriceService } from '../prices/price.service';
 
 const MAX_SCALE = 6;
 const DOUBLE_TAP_MS = 300;
+/** A finger that moves less than this is a tap, not a drag. */
+const TAP_SLOP = 12;
+/** A swipe turns the card after this far, or after a quick flick of FLICK_MIN at FLICK_SPEED px/ms. */
+const SWIPE_MIN = 45;
+const FLICK_MIN = 20;
+const FLICK_SPEED = 0.35;
 /** Degrees the card leans at the very edge of a touch. */
 const MAX_TILT = 15;
 /** Degrees of phone tilt that lean the card all the way. */
@@ -523,10 +529,11 @@ export class CardViewerComponent implements OnInit {
   private pointers = new Map<number, { x: number; y: number }>();
   private cardRect: DOMRect | null = null;
   private gyroBase: { beta: number; gamma: number } | null = null;
-  private swipeFrom: { x: number; y: number } | null = null;
+  private swipeFrom: { x: number; y: number; at: number } | null = null;
   private startDistance = 0;
   private startScale = 1;
-  private lastTap = 0;
+  /** The last finger lifted without moving, for spotting a double-tap. */
+  private lastTap: { x: number; y: number; at: number } | null = null;
 
   constructor() {
     addIcons({ closeOutline, chevronBack, chevronForward });
@@ -575,23 +582,23 @@ export class CardViewerComponent implements OnInit {
   }
 
   protected down(event: PointerEvent): void {
+    // The arrow buttons handle their own taps; tapped quickly they'd otherwise read as a double-tap.
+    if ((event.target as HTMLElement).closest('.step')) return;
     (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointers.size === 1) {
-      this.swipeFrom = { x: event.clientX, y: event.clientY };
+      this.swipeFrom = { x: event.clientX, y: event.clientY, at: event.timeStamp };
       this.cardRect = (event.currentTarget as HTMLElement).querySelector('.card')?.getBoundingClientRect() ?? null;
       if (this.scale() === 1) this.leanAt(event);
     }
     if (this.pointers.size === 2) {
+      // A pinch is never a swipe, even when one finger lifts well to the side.
+      this.swipeFrom = null;
       this.touch.set(null);
       this.dragX.set(0);
       this.startDistance = this.distance();
       this.startScale = this.scale();
-      return;
     }
-    const now = Date.now();
-    if (now - this.lastTap < DOUBLE_TAP_MS) this.toggleZoom();
-    this.lastTap = now;
   }
 
   protected move(event: PointerEvent): void {
@@ -617,6 +624,9 @@ export class CardViewerComponent implements OnInit {
   }
 
   protected up(event: PointerEvent): void {
+    // A cancelled touch can report 0,0; its last move is where the finger really was.
+    const last = this.pointers.get(event.pointerId);
+    const end = event.type === 'pointercancel' && last ? last : { x: event.clientX, y: event.clientY };
     this.pointers.delete(event.pointerId);
     if (this.pointers.size < 2) this.startDistance = 0;
     if (!this.pointers.size) {
@@ -624,12 +634,26 @@ export class CardViewerComponent implements OnInit {
       this.touch.set(null);
       this.dragX.set(0);
     }
-    // A flick across an unzoomed card turns the page; zoomed in, the same gesture pans instead.
     const from = this.swipeFrom;
     this.swipeFrom = null;
-    if (!from || this.scale() !== 1 || this.deck().length < 2) return;
-    const dx = event.clientX - from.x;
-    if (Math.abs(dx) > 55 && Math.abs(event.clientY - from.y) < 70) this.step(dx < 0 ? 1 : -1);
+    if (!from || this.pointers.size) return;
+    const dx = end.x - from.x;
+    const dy = end.y - from.y;
+
+    if (Math.hypot(dx, dy) < TAP_SLOP) {
+      // Only two taps in one spot zoom, so quick swipes one after another never do.
+      const tap = this.lastTap;
+      const double = tap && event.timeStamp - tap.at < DOUBLE_TAP_MS && Math.hypot(end.x - tap.x, end.y - tap.y) < 40;
+      this.lastTap = double ? null : { ...end, at: event.timeStamp };
+      if (double) this.toggleZoom();
+      return;
+    }
+    this.lastTap = null;
+
+    // A sideways swipe across an unzoomed card turns the page; zoomed in, the same gesture pans instead.
+    if (this.scale() !== 1 || this.deck().length < 2 || Math.abs(dx) < Math.abs(dy)) return;
+    const speed = Math.abs(dx) / Math.max(1, event.timeStamp - from.at);
+    if (Math.abs(dx) >= SWIPE_MIN || (Math.abs(dx) >= FLICK_MIN && speed >= FLICK_SPEED)) this.step(dx < 0 ? 1 : -1);
   }
 
   private toggleZoom(): void {

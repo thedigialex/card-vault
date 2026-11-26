@@ -8,8 +8,6 @@ import {
   IonContent,
   IonHeader,
   IonIcon,
-  IonSelect,
-  IonSelectOption,
   IonTitle,
   IonToolbar,
   ModalController,
@@ -21,10 +19,10 @@ import { boxColor } from '../boxes/box-models';
 import { BoxService } from '../boxes/box.service';
 import { AddCardService } from '../data/add-card.service';
 import { DEFAULT_SORT, SortId, sortEntries, sortOptionsFor, sortValue } from '../data/card-sort';
-import { CatalogCard } from '../data/models';
-import { stacksOf } from '../data/stacks';
+import { slotRange, stacksOf } from '../data/stacks';
 import { MoneyPipe } from '../prices/money.pipe';
 import { PriceService } from '../prices/price.service';
+import { SortSelectComponent } from '../shared/sort-select.component';
 import { ListDraft, ListFormComponent } from './list-form.component';
 import { registerListIcons } from './list-models';
 import { ListCard, ListService } from './list.service';
@@ -33,7 +31,7 @@ import { ListCard, ListService } from './list.service';
   selector: 'app-list',
   imports: [CardSrcDirective,
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonButton, IonIcon, IonContent, RouterLink,
-    IonSelect, IonSelectOption, MoneyPipe,
+    SortSelectComponent, MoneyPipe,
   ],
   template: `
     <ion-header>
@@ -67,18 +65,13 @@ import { ListCard, ListService } from './list.service';
         </div>
 
         @if (cards().length) {
-          <ion-select
+          <app-sort-select
             class="sort"
-            label="Sort by"
-            interface="action-sheet"
-            [interfaceOptions]="{ header: 'Sort this list by' }"
-            [value]="list.sortBy ?? 'set'"
-            (ionChange)="sortBy($event.detail.value)"
-          >
-            @for (option of sortOptions(); track option.id) {
-              <ion-select-option [value]="option.id">{{ option.label }}</ion-select-option>
-            }
-          </ion-select>
+            header="Sort this list by"
+            [value]="list.sortBy"
+            [options]="sortOptions()"
+            (picked)="sortBy($event)"
+          />
           @for (row of rows(); track row.first.entry.id) {
             <button class="row" (click)="open(row.first)">
               <span class="thumb">
@@ -112,12 +105,6 @@ import { ListCard, ListService } from './list.service';
   styles: `
     .sort {
       margin: 4px 16px 6px;
-      padding: 2px 14px;
-      width: auto;
-      border-radius: var(--vault-radius);
-      border: 1px solid var(--vault-panel-edge);
-      background: var(--vault-panel);
-      font-size: 14px;
     }
     .thumb {
       position: relative;
@@ -190,21 +177,19 @@ export class ListPage {
   protected readonly value = computed(() => this.lists.valueOf(Number(this.id())));
   protected readonly loose = computed(() => this.cards().filter(row => !row.location).length);
 
-  private readonly priceOf = (card: CatalogCard) => this.prices.priceOf(card);
-
   protected readonly sortOptions = computed(() => sortOptionsFor(this.cards().map(row => row.card.card)));
 
   /** A list isn't a physical place, so every copy of a card stacks, wherever the copies sit. */
   protected readonly rows = computed(() => {
     const sortBy = this.list()?.sortBy;
-    const sorted = sortEntries(this.cards(), sortBy, this.priceOf, row => row.card);
+    const sorted = sortEntries(this.cards(), sortBy, this.prices.priceOf, row => row.card);
     return stacksOf(sorted, row => row.card, false).map(stack => {
       const first = stack.items[0];
       const shown = sortBy && sortBy !== DEFAULT_SORT && sortBy !== 'added' && sortBy !== 'name';
       return {
         first,
         copies: stack.items,
-        detail: shown ? sortValue(sortBy, first.card.card, this.priceOf) : first.card.card.rarity,
+        detail: shown ? sortValue(sortBy, first.card.card, this.prices.priceOf) : first.card.card.rarity,
         where: this.whereAll(stack.items),
       };
     });
@@ -222,9 +207,7 @@ export class ListPage {
     const together = first && spots.every(spot => spot && spot.boxId === first.boxId && spot.row === first.row);
     if (together) {
       const slots = spots.map(spot => spot!.position + 1).sort((a, b) => a - b);
-      const run = slots.every((slot, i) => i === 0 || slot === slots[i - 1] + 1);
-      const numbers = slots.length === 1 ? `${slots[0]}` : run ? `${slots[0]}–${slots.at(-1)}` : slots.join(', #');
-      return `${this.boxes.describe({ boxId: first.boxId, row: first.row })} · #${numbers}`;
+      return `${this.boxes.describe({ boxId: first.boxId, row: first.row })} · #${slotRange(slots, ', #')}`;
     }
     const places = [...new Set(copies.map(row => row.where))];
     return places.length > 1 ? `${places[0]} +${places.length - 1} more` : places[0];
